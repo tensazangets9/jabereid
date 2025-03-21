@@ -84,9 +84,9 @@ jobs:
 
       - name: Ensure correct Azure Subscription
         run: |
-          az account clear
+          echo "🔄 Setting Azure Subscription..."
           az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          echo "✅ Successfully set Azure subscription"
+          echo "✅ Successfully set Azure subscription!"
           az account show --output table
 
       - name: Deploy to Azure Web App
@@ -101,9 +101,9 @@ jobs:
           inlineScript: |
             echo "🔧 Configuring Azure Web App settings..."
             az webapp config appsettings set --name ${{ secrets.AZURE_WEBAPP_NAME }} --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --settings \
-              VITE_AZURE_STORAGE_ACCOUNT=${{ secrets.VITE_AZURE_STORAGE_ACCOUNT || 'sultaneng' }} \
-              VITE_AZURE_CONTAINER=${{ secrets.VITE_AZURE_CONTAINER || 'sultangengwebsite' }} \
+              VITE_AZURE_STORAGE_ACCOUNT=${{ secrets.VITE_AZURE_STORAGE_ACCOUNT }} \
+              VITE_AZURE_CONTAINER=${{ secrets.VITE_AZURE_CONTAINER }} \
               VITE_AZURE_SAS_TOKEN=${{ secrets.VITE_AZURE_SAS_TOKEN }} \
-              VITE_AZURE_BASE_URL=${{ secrets.VITE_AZURE_BASE_URL || 'https://sultaneng.blob.core.windows.net/sultangengwebsite' }} \
+              VITE_AZURE_BASE_URL=${{ secrets.VITE_AZURE_BASE_URL }} \
               VITE_APP_ENV=production
             echo "✅ Azure Web App settings configured successfully."
