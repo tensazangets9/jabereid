@@ -6,7 +6,6 @@ on:
       - master
   workflow_dispatch:
 
-
 permissions:
   id-token: write  # This is required for OIDC authentication
   contents: read
@@ -82,22 +81,29 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          allow-no-subscriptions: true  # Add this to allow login without subscriptions
+
+      - name: Ensure correct Azure Subscription
+        run: |
+          az account clear
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          echo "✅ Successfully set Azure subscription"
+          az account show --output table
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
           package: .
-          
+
       - name: Configure Azure Web App settings
         uses: azure/cli@v1
         with:
           inlineScript: |
-            # Configure app settings
+            echo "🔧 Configuring Azure Web App settings..."
             az webapp config appsettings set --name ${{ secrets.AZURE_WEBAPP_NAME }} --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --settings \
               VITE_AZURE_STORAGE_ACCOUNT=${{ secrets.VITE_AZURE_STORAGE_ACCOUNT || 'sultaneng' }} \
               VITE_AZURE_CONTAINER=${{ secrets.VITE_AZURE_CONTAINER || 'sultangengwebsite' }} \
               VITE_AZURE_SAS_TOKEN=${{ secrets.VITE_AZURE_SAS_TOKEN }} \
               VITE_AZURE_BASE_URL=${{ secrets.VITE_AZURE_BASE_URL || 'https://sultaneng.blob.core.windows.net/sultangengwebsite' }} \
-              VITE_APP_ENV=production 
+              VITE_APP_ENV=production
+            echo "✅ Azure Web App settings configured successfully."
