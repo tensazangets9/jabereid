@@ -103,7 +103,9 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
     maintainAspectRatio: false,
     layout: {
       padding: {
-        bottom: 25, // Add padding at the bottom for labels
+        bottom: 35, // More padding for labels
+        left: 10,
+        right: 20,
       }
     },
     plugins: {
@@ -141,16 +143,14 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
         },
         ticks: {
           font: {
-            size: 12
+            size: 11
           },
-          // Make labels horizontal instead of diagonal
-          maxRotation: 0,
-          minRotation: 0,
-          // Add more space between labels
+          // Make labels vertical for more space
+          maxRotation: 45,
+          minRotation: 45,
           padding: 10,
           // Allow wrapping of long labels
           autoSkip: false,
-          autoSkipPadding: 15,
           // Enable label wrapping if needed
           callback: function(value: string | number): string | string[] {
             // ChartJS context is available through 'this', but we'll use direct value approach
@@ -159,12 +159,9 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
               const categories = categoryComparisonData.labels;
               if (categories && categories[value]) {
                 const label = categories[value] as string;
-                // If label is too long, try to split it at a space
-                if (label && label.length > 15) {
-                  const words = label.split(' ');
-                  if (words.length > 1) {
-                    return [words[0], words.slice(1).join(' ')];
-                  }
+                // Shorten long labels
+                if (label && label.length > 20) {
+                  return label.substring(0, 18) + '...';
                 }
                 return label;
               }
@@ -184,7 +181,7 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
         ticks: {
           padding: 10,
           font: {
-            size: 14
+            size: 12
           },
           callback: function(value: number | string) {
             if (typeof value === 'number') {
@@ -199,13 +196,15 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-md p-6 w-full">
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-xl font-semibold text-gray-800">مقارنة المصروفات حسب الفئة</h3>
+    <div className="bg-white rounded-xl shadow-md p-4 sm:p-6 w-full overflow-x-auto">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg sm:text-xl font-semibold text-gray-800">مقارنة المصروفات حسب الفئة</h3>
       </div>
-      {/* Increase height to make chart taller and give more room for horizontal labels */}
-      <div style={{ height: '460px', width: '100%', marginBottom: '25px' }}>
-        <Bar data={categoryComparisonData} options={barOptions} />
+      {/* Chart container with scroll capability */}
+      <div className="min-w-[280px] sm:min-w-[400px] md:min-w-full" style={{ height: '500px', width: '100%', overflow: 'auto' }}>
+        <div style={{ minWidth: '280px', height: '100%', width: '100%' }}>
+          <Bar data={categoryComparisonData} options={barOptions} />
+        </div>
       </div>
     </div>
   );

@@ -624,18 +624,31 @@ export function RecordForm({
             <input
               type="number"
               {...register('Quantity', { valueAsNumber: true })}
-              className="block w-full rounded-md border-gray-300 shadow-sm py-2.5 px-3 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+              className="block w-full rounded-md border-gray-300 shadow-sm py-2.5 px-3 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 no-spinners"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">سعر الوحدة</label>
             <div className="relative">
+              <style dangerouslySetInnerHTML={{
+                __html: `
+                  /* Hide number input spinners */
+                  input[type=number].no-spinners::-webkit-inner-spin-button, 
+                  input[type=number].no-spinners::-webkit-outer-spin-button { 
+                    -webkit-appearance: none;
+                    margin: 0;
+                  }
+                  input[type=number].no-spinners {
+                    -moz-appearance: textfield;
+                  }
+                `
+              }} />
               <input
                 type="number"
                 step="0.01"
                 {...register('UnitPrice', { valueAsNumber: true })}
-                className="w-full text-right py-2.5 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-200 focus:border-indigo-300"
+                className="w-full text-right py-2.5 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-200 focus:border-indigo-300 no-spinners"
                 style={{ paddingLeft: "2rem" }}
               />
               <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">

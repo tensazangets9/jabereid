@@ -1069,10 +1069,10 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 relative pb-16">
-      <div className="max-w-lg mx-auto px-4 py-6">
+      <div className="max-w-[100%] sm:max-w-lg mx-auto px-2 sm:px-4 py-6">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">مصروفات عيد ذوي جابر</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">مصروفات عيد ذوي جابر</h1>
             {userName && (
               <div className="flex items-center text-sm text-gray-600 mt-1">
                 <User className="w-4 h-4 ml-1" />
@@ -1132,15 +1132,15 @@ function App() {
                   placeholder="ابحث عن عنصر..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm py-2 pr-10 pl-3 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                  className="block w-full rounded-md border-gray-300 shadow-sm py-2 pr-8 pl-8 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 text-sm"
                 />
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-5 w-5 text-gray-400" />
+                <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-gray-400" />
                 </div>
               </div>
             </div>
 
-            {/* Category Filter - Tab style */}
+            {/* Category Filter - Optimized for mobile */}
             <div>
               <div className="relative">
                 <style dangerouslySetInnerHTML={{ 
@@ -1155,9 +1155,9 @@ function App() {
                   `
                 }} />
                 <div className="overflow-x-auto no-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  <div className="flex space-x-2 rtl:space-x-reverse py-1 px-0.5">
+                  <div className="flex space-x-1 rtl:space-x-reverse py-1 px-0.5">
                     <button
-                      className={`px-4 py-2 rounded-md whitespace-nowrap text-sm font-medium transition-colors ${
+                      className={`px-3 py-1.5 rounded-md whitespace-nowrap text-xs font-medium transition-colors ${
                         !selectedCategory
                           ? 'bg-indigo-600 text-white shadow-sm'
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -1169,7 +1169,7 @@ function App() {
                     {categories.map(category => (
                       <button
                         key={category}
-                        className={`px-4 py-2 rounded-md whitespace-nowrap text-sm font-medium transition-colors ${
+                        className={`px-3 py-1.5 rounded-md whitespace-nowrap text-xs font-medium transition-colors ${
                           selectedCategory === category
                             ? 'bg-indigo-600 text-white shadow-sm'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -1182,8 +1182,8 @@ function App() {
                   </div>
                 </div>
                 {/* Gradient fades for scroll indication */}
-                <div className="absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-l from-gray-100 to-transparent pointer-events-none"></div>
-                <div className="absolute top-0 left-0 bottom-0 w-8 bg-gradient-to-r from-gray-100 to-transparent pointer-events-none"></div>
+                <div className="absolute top-0 right-0 bottom-0 w-6 bg-gradient-to-l from-gray-100 to-transparent pointer-events-none"></div>
+                <div className="absolute top-0 left-0 bottom-0 w-6 bg-gradient-to-r from-gray-100 to-transparent pointer-events-none"></div>
               </div>
             </div>
             
@@ -1211,19 +1211,21 @@ function App() {
         {isSummaryLoading ? (
           <YearlySummarySkeleton />
         ) : (
-          <div className="mb-6 bg-white rounded-lg shadow-md p-4">
-            <h2 className="text-lg font-semibold mb-3 text-gray-900">إجمالي المصروفات حسب السنة</h2>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="mb-6 bg-white rounded-lg shadow-md p-3">
+            <h2 className="text-base sm:text-lg font-semibold mb-2 text-gray-900">إجمالي المصروفات حسب السنة</h2>
+            <div className="grid grid-cols-1 gap-3">
               {sortedYears.map(year => (
-                <div key={year} className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-sm text-gray-500">
-                    سنة {isNaN(parseInt(year)) ? year : parseInt(year).toLocaleString('ar-SA')}
+                <div key={year} className="bg-gray-50 rounded-lg p-2">
+                  <div className="flex justify-between items-center">
+                    <div className="text-xs sm:text-sm text-gray-500">
+                      سنة {isNaN(parseInt(year)) ? year : parseInt(year).toLocaleString('ar-SA')}
+                    </div>
+                    <div className="text-base sm:text-lg font-semibold text-gray-900 flex items-center">
+                      <span className="mx-1">{yearlyStats[year].total.toLocaleString('ar-SA')}</span>
+                      <SaudiRiyalSymbol size={14} className="text-gray-700" />
+                    </div>
                   </div>
-                  <div className="text-lg font-semibold text-gray-900 mb-1 flex items-center justify-end">
-                    <span className="mx-1">{yearlyStats[year].total.toLocaleString('ar-SA')}</span>
-                    <SaudiRiyalSymbol size={16} className="text-gray-700" />
-                  </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 mt-1">
                     ({yearlyStats[year].count.toLocaleString('ar-SA')} سجل)
                   </div>
                   {year === '1446' && (
@@ -1231,31 +1233,26 @@ function App() {
                       {/* Budget progress bar */}
                       <div className="mt-2">
                         <div className="flex justify-between items-center text-xs mb-1">
-                          <span className="text-gray-600">الميزانية: 17,970.60 ريال</span>
-                          <span className={`font-medium ${yearlyStats[year].total > 17970.60 ? 'text-red-600' : 'text-green-600'}`}>
-                            {Math.min(100, Math.round((yearlyStats[year].total / 17970.60) * 100))}%
+                          <span className="text-gray-600">الميزانية: 20,520.60 ريال</span>
+                          <span className={`font-medium ${yearlyStats[year].total > 20520.60 ? 'text-red-600' : 'text-green-600'}`}>
+                            {Math.min(100, Math.round((yearlyStats[year].total / 20520.60) * 100))}%
                           </span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2.5">
                           <div 
-                            className={`h-2.5 rounded-full ${yearlyStats[year].total > 17970.60 ? 'bg-red-500' : 'bg-green-500'}`}
-                            style={{ width: `${Math.min(100, (yearlyStats[year].total / 17970.60) * 100)}%` }}
+                            className={`h-2.5 rounded-full ${yearlyStats[year].total > 20520.60 ? 'bg-red-500' : 'bg-green-500'}`}
+                            style={{ width: `${Math.min(100, (yearlyStats[year].total / 20520.60) * 100)}%` }}
                           ></div>
                         </div>
                         <div className="text-xs mt-1 text-right">
-                          {yearlyStats[year].total > 17970.60 ? (
-                            <span className="text-red-600">تجاوز الميزانية بمقدار {(yearlyStats[year].total - 17970.60).toLocaleString('ar-SA')} ريال</span>
+                          {yearlyStats[year].total > 20520.60 ? (
+                            <span className="text-red-600">تجاوز الميزانية بمقدار {(yearlyStats[year].total - 20520.60).toLocaleString('ar-SA')} ريال</span>
                           ) : (
-                            <span className="text-green-600">متبقي {(17970.60 - yearlyStats[year].total).toLocaleString('ar-SA')} ريال</span>
+                            <span className="text-green-600">متبقي {(20520.60 - yearlyStats[year].total).toLocaleString('ar-SA')} ريال</span>
                           )}
                         </div>
                       </div>
                     </>
-                  )}
-                  {year === '1446' && yearlyComparison && (
-                    <div className={`text-xs mt-1 text-right ${yearlyComparison.isIncrease ? 'text-red-600' : 'text-green-600'}`}>
-                      {yearlyComparison.isIncrease ? '▲' : '▼'} {parseFloat(Math.abs(yearlyComparison.percentageChange).toFixed(1)).toLocaleString('ar-SA')}% مقارنة بعام ١٤٤٥
-                    </div>
                   )}
                 </div>
               ))}
@@ -1268,12 +1265,12 @@ function App() {
               className="mt-4 flex items-center justify-center w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors"
             >
               <BarChart className="w-4 h-4 ml-2" />
-              <span>{showCharts ? 'إخفاء مقارنة الفئات' : 'عرض مقارنة الفئات بين ١٤٤٥ و١٤٤٦'}</span>
+              <span>{showCharts ? 'إخفاء مخطط الفئات' : 'عرض مخطط الفئات'}</span>
             </button>
 
             {/* Charts section */}
             {showCharts && (
-              <div className="mt-4">
+              <div className="mt-4 -mx-3 sm:mx-0 overflow-hidden">
                 <ExpenseCharts 
                   records={records}
                   yearlyStats={yearlyStats}
@@ -1304,29 +1301,47 @@ function App() {
           </div>
         )}
 
+        {/* Form Dialog Modal */}
         {(isFormOpen || editingRecord) && !isReadOnly && (
-          <div className="mb-6 bg-white p-8 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold mb-1">
-              {editingRecord ? 'تعديل السجل' : 'إضافة سجل جديد'}
-            </h2>
-            {!editingRecord && (
-              <div className="bg-indigo-50 p-2 rounded mb-6 border border-indigo-100">
-                <p className="text-sm text-indigo-800 font-medium">للسنة الهجرية ١٤٤٦</p>
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4 py-6 overflow-y-auto">
+            <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-auto">
+              <div className="p-6 sm:p-8">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    {editingRecord ? 'تعديل السجل' : 'إضافة سجل جديد'}
+                  </h2>
+                  <button 
+                    onClick={() => {
+                      setIsFormOpen(false);
+                      setEditingRecord(null);
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                {!editingRecord && (
+                  <div className="bg-indigo-50 p-2 rounded mb-6 border border-indigo-100">
+                    <p className="text-sm text-indigo-800 font-medium">للسنة الهجرية ١٤٤٦</p>
+                  </div>
+                )}
+                
+                <RecordForm
+                  onSubmit={editingRecord ? handleUpdateRecord : handleAddRecord}
+                  onCancel={() => {
+                    setIsFormOpen(false);
+                    setEditingRecord(null);
+                  }}
+                  initialData={editingRecord?.fields}
+                  isEditing={!!editingRecord}
+                  predefinedItems={uniqueItems}
+                  predefinedUnits={uniqueUnits}
+                  isSubmitting={isFormSubmitting}
+                  recordId={editingRecord?.recordId}
+                />
               </div>
-            )}
-            <RecordForm
-              onSubmit={editingRecord ? handleUpdateRecord : handleAddRecord}
-              onCancel={() => {
-                setIsFormOpen(false);
-                setEditingRecord(null);
-              }}
-              initialData={editingRecord?.fields}
-              isEditing={!!editingRecord}
-              predefinedItems={uniqueItems}
-              predefinedUnits={uniqueUnits}
-              isSubmitting={isFormSubmitting}
-              recordId={editingRecord?.recordId}
-            />
+            </div>
           </div>
         )}
 
@@ -1392,17 +1407,17 @@ function App() {
 
               return (
                 <div key={item} className="bg-white rounded-lg shadow-md overflow-hidden">
-                  <div className="p-4">
-                    <div className="flex justify-between items-start mb-3">
+                  <div className="p-3">
+                    <div className="flex justify-between items-start mb-2">
                       <div>
-                        <h3 className="text-lg font-semibold text-gray-900">{item}</h3>
-                        <p className="text-sm text-gray-500">
+                        <h3 className="text-base font-semibold text-gray-900">{item}</h3>
+                        <p className="text-xs text-gray-500">
                           {latestRecord.fields["Arabic Category"] || latestRecord.fields.Category || 'غير مصنف'}
                         </p>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-2 text-sm mb-3">
+                    <div className="grid grid-cols-1 gap-1 text-xs mb-2">
                       <div className="flex items-center justify-between">
                         <div>
                           <span className="text-gray-500">الوحدة:</span>
@@ -1415,7 +1430,7 @@ function App() {
                             aria-label="عرض المرفقات"
                             title="عرض المرفقات"
                           >
-                            <Paperclip className="w-4 h-4 ml-1" />
+                            <Paperclip className="w-3 h-3 ml-1" />
                             <span className="text-xs">مرفقات</span>
                           </button>
                         )}
@@ -1424,54 +1439,58 @@ function App() {
                   </div>
 
                   <div className="border-t border-gray-200 overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
+                    <table className="w-full divide-y divide-gray-200 text-xs">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">السنة</th>
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">الكمية</th>
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">سعر الوحدة</th>
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">التكلفة</th>
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">المرفقات</th>
+                          <th className="px-2 py-1.5 text-center font-medium text-gray-500">السنة</th>
+                          <th className="px-2 py-1.5 text-center font-medium text-gray-500">الكمية</th>
+                          <th className="px-2 py-1.5 text-center font-medium text-gray-500">السعر</th>
+                          <th className="px-2 py-1.5 text-center font-medium text-gray-500">التكلفة</th>
+                          <th className="px-1 py-1.5 text-center font-medium text-gray-500 w-6">
+                            <span className="sr-only">المرفقات</span>
+                          </th>
                           {!isReadOnly && (
-                            <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">الإجراءات</th>
+                            <th className="px-1 py-1.5 text-center font-medium text-gray-500 w-12">
+                              <span className="sr-only">الإجراءات</span>
+                            </th>
                           )}
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {sortedRecords.map((record) => (
                           <tr key={record.recordId} className="hover:bg-gray-50">
-                            <td className="px-3 py-2 text-sm text-gray-900 text-center">
+                            <td className="px-2 py-1.5 text-gray-900 text-center">
                               {isNaN(parseInt(record.fields.EidYear)) ? 
                                 record.fields.EidYear : 
                                 parseInt(record.fields.EidYear).toLocaleString('ar-SA')}
                             </td>
-                            <td className="px-3 py-2 text-sm text-gray-900 text-center">{record.fields.Quantity.toLocaleString('ar-SA')}</td>
-                            <td className="px-3 py-2 text-sm text-gray-900">
+                            <td className="px-2 py-1.5 text-gray-900 text-center">{record.fields.Quantity.toLocaleString('ar-SA')}</td>
+                            <td className="px-2 py-1.5 text-gray-900">
                               <div className="flex items-center justify-center">
-                                <span className="mx-1">{record.fields.UnitPrice.toLocaleString('ar-SA')}</span>
-                                <SaudiRiyalSymbol size={14} className="text-gray-700" />
+                                <span>{record.fields.UnitPrice.toLocaleString('ar-SA')}</span>
+                                <SaudiRiyalSymbol size={10} className="text-gray-700 mr-0.5" />
                               </div>
                             </td>
-                            <td className="px-3 py-2 text-sm font-medium text-gray-900">
+                            <td className="px-2 py-1.5 font-medium text-gray-900">
                               <div className="flex items-center justify-center">
-                                <span className="mx-1">{record.fields.Cost.toLocaleString('ar-SA')}</span>
-                                <SaudiRiyalSymbol size={14} className="text-gray-700" />
+                                <span>{record.fields.Cost.toLocaleString('ar-SA')}</span>
+                                <SaudiRiyalSymbol size={10} className="text-gray-700 mr-0.5" />
                               </div>
                             </td>
-                            <td className="px-3 py-2 text-sm text-gray-500 text-center">
+                            <td className="px-1 py-1.5 text-gray-500 text-center">
                               {record.fields["Attachment URL"] && (
                                 <button
                                   onClick={() => validateAndShowAttachments(record)}
-                                  className="text-blue-500 hover:text-blue-700 p-1"
+                                  className="text-blue-500 hover:text-blue-700"
                                   aria-label="عرض المرفقات"
                                   title="عرض المرفقات"
                                 >
-                                  <Paperclip className="w-4 h-4" />
+                                  <Paperclip className="w-3 h-3" />
                                 </button>
                               )}
                             </td>
                             {!isReadOnly && (
-                              <td className="px-3 py-2 text-sm font-medium text-gray-900 flex space-x-1 rtl:space-x-reverse justify-center">
+                              <td className="px-1 py-1.5 font-medium text-gray-900 flex space-x-1 rtl:space-x-reverse justify-center">
                                 {record.fields.EidYear !== '1445' && (
                                   <>
                                     <button
@@ -1479,26 +1498,26 @@ function App() {
                                         setEditingRecord(record);
                                         setIsFormOpen(false);
                                       }}
-                                      className={`text-blue-600 hover:text-blue-900 p-1 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                      className={`text-blue-600 hover:text-blue-900 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                                       aria-label="تعديل"
                                       title="تعديل"
                                       disabled={isFormSubmitting}
                                     >
-                                      <Pencil className="w-4 h-4" />
+                                      <Pencil className="w-3 h-3" />
                                     </button>
                                     <button
                                       onClick={() => confirmDelete(record.recordId!)}
-                                      className={`text-red-600 hover:text-red-900 p-1 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                      className={`text-red-600 hover:text-red-900 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                                       aria-label="حذف"
                                       title="حذف"
                                       disabled={isFormSubmitting}
                                     >
-                                      <Trash2 className="w-4 h-4" />
+                                      <Trash2 className="w-3 h-3" />
                                     </button>
                                   </>
                                 )}
                                 {record.fields.EidYear === '1445' && (
-                                  <span className="text-xs text-gray-500">للقراءة فقط</span>
+                                  <span className="text-xs text-gray-400">للقراءة</span>
                                 )}
                               </td>
                             )}
