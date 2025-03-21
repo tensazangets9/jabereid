@@ -1260,6 +1260,7 @@ function App() {
                 </div>
               ))}
             </div>
+            
 
             {/* Toggle charts button */}
             <button
