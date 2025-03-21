@@ -15,10 +15,10 @@ interface AttachmentField extends BaseAttachmentField {
 }
 
 // Azure Blob Storage configuration
-const AZURE_STORAGE_ACCOUNT = "sultaneng";
-const AZURE_CONTAINER = "sultangengwebsite";
-const AZURE_SAS_TOKEN = "?sv=2023-01-03&st=2025-03-21T11%3A53%3A56Z&se=2025-04-22T11%3A53%3A00Z&sr=c&sp=racwdxltf&sig=O4LWckRIsuxZaCE4ZTJmi7Bl38QocgXKBIv9PltPlGc%3D";
-const AZURE_BASE_URL = `https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_CONTAINER}`;
+const AZURE_STORAGE_ACCOUNT = import.meta.env.VITE_AZURE_STORAGE_ACCOUNT || "sultaneng";
+const AZURE_CONTAINER = import.meta.env.VITE_AZURE_CONTAINER || "sultangengwebsite";
+const AZURE_SAS_TOKEN = import.meta.env.VITE_AZURE_SAS_TOKEN || "?sv=2023-01-03&st=2025-03-21T11%3A53%3A56Z&se=2025-04-22T11%3A53%3A00Z&sr=c&sp=racwdxltf&sig=O4LWckRIsuxZaCE4ZTJmi7Bl38QocgXKBIv9PltPlGc%3D";
+const AZURE_BASE_URL = import.meta.env.VITE_AZURE_BASE_URL || `https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_CONTAINER}`;
 
 // List of authorized users with their phone numbers and names
 const AUTHORIZED_USERS = [
