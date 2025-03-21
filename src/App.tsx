@@ -1072,7 +1072,7 @@ function App() {
       <div className="max-w-lg mx-auto px-4 py-6">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">سجلات المصروفات</h1>
+            <h1 className="text-2xl font-bold text-gray-900">مصروفات عيد ذوي جابر</h1>
             {userName && (
               <div className="flex items-center text-sm text-gray-600 mt-1">
                 <User className="w-4 h-4 ml-1" />
