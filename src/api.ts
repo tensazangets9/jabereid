@@ -152,23 +152,87 @@ export const addRecord = async (record: Record) => {
   }
   
   try {
+    // Process attachments - AITable expects a specific format for the Attachment field
+    // If record has attachments, format them correctly
+    const processedRecord = { ...record };
+    
+    console.log('--------- RECORD CREATE START ---------');
+    console.log('Original record:', JSON.stringify(record, null, 2));
+    
+    // Remove fields that can't be edited in AITable
+    if (processedRecord.fields.Title !== undefined) {
+      console.log('Removing auto-number Title field:', processedRecord.fields.Title);
+      delete processedRecord.fields.Title;
+    }
+    
+    // Also remove any other auto-generated fields
+    if (processedRecord.fields['Created time'] !== undefined) {
+      delete processedRecord.fields['Created time'];
+    }
+    
+    if (processedRecord.fields['Last edited time'] !== undefined) {
+      delete processedRecord.fields['Last edited time'];
+    }
+    
+    if (processedRecord.fields.Attachment && processedRecord.fields.Attachment.length > 0) {
+      console.log('Original attachments:', JSON.stringify(processedRecord.fields.Attachment, null, 2));
+      
+      // Format attachments for AITable API - only need to send token, name, and size
+      processedRecord.fields.Attachment = processedRecord.fields.Attachment.map(attachment => {
+        const formattedAttachment = {
+          token: attachment.token,
+          name: attachment.name,
+          size: attachment.size
+        };
+        
+        if (!attachment.token) {
+          console.error('Missing token in attachment!', attachment);
+        }
+        
+        return formattedAttachment;
+      });
+      
+      console.log('Formatted attachments for API:', JSON.stringify(processedRecord.fields.Attachment, null, 2));
+    }
+    
+    console.log('Final record being sent to API:', JSON.stringify(processedRecord, null, 2));
+    
     // Call API to add record
+    console.log('Sending create request to /records endpoint');
     const response = await api.post<ApiResponse>(`/records?fieldKey=name`, {
-      records: [record],
+      records: [processedRecord],
     });
+    
+    console.log('Create response status:', response.status);
+    console.log('Create response:', JSON.stringify(response.data, null, 2));
     
     // If successful, update the cache with fresh data
     if (response.data.success) {
+      console.log('Create successful, fetching fresh data to update cache');
       // Fetch fresh data to update cache
       const freshData = await api.get<ApiResponse>(`/records?fieldKey=name`);
       if (freshData.data.success) {
         saveToCache(freshData.data);
+        console.log('Cache updated with fresh data');
       }
+    } else {
+      console.error('Create not successful:', response.data);
     }
     
+    console.log('--------- RECORD CREATE COMPLETE ---------');
     return response.data;
   } catch (error) {
+    console.error('--------- RECORD CREATE ERROR ---------');
     console.error('Error adding record:', error);
+    
+    if (axios.isAxiosError(error) && error.response) {
+      console.error('API error details:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: JSON.stringify(error.response.data, null, 2)
+      });
+    }
+    
     throw error;
   }
 };
@@ -180,23 +244,89 @@ export const updateRecord = async (record: Record) => {
   }
   
   try {
+    // Process attachments - AITable expects a specific format for the Attachment field
+    // If record has attachments, format them correctly
+    const processedRecord = { ...record };
+    
+    console.log('--------- RECORD UPDATE START ---------');
+    console.log('Original record:', JSON.stringify(record, null, 2));
+    
+    // Remove fields that can't be edited in AITable
+    if (processedRecord.fields.Title !== undefined) {
+      console.log('Removing auto-number Title field:', processedRecord.fields.Title);
+      delete processedRecord.fields.Title;
+    }
+    
+    // Also remove any other auto-generated fields
+    if (processedRecord.fields['Created time'] !== undefined) {
+      delete processedRecord.fields['Created time'];
+    }
+    
+    if (processedRecord.fields['Last edited time'] !== undefined) {
+      delete processedRecord.fields['Last edited time'];
+    }
+    
+    if (processedRecord.fields.Attachment && processedRecord.fields.Attachment.length > 0) {
+      console.log('Original attachments:', JSON.stringify(processedRecord.fields.Attachment, null, 2));
+      
+      // Format attachments for AITable API - only need to send token, name, and size
+      processedRecord.fields.Attachment = processedRecord.fields.Attachment.map(attachment => {
+        const formattedAttachment = {
+          token: attachment.token,
+          name: attachment.name,
+          size: attachment.size
+        };
+        
+        if (!attachment.token) {
+          console.error('Missing token in attachment!', attachment);
+        }
+        
+        return formattedAttachment;
+      });
+      
+      console.log('Formatted attachments for API:', JSON.stringify(processedRecord.fields.Attachment, null, 2));
+    } else {
+      console.log('No attachments in record');
+    }
+    
+    console.log('Final record being sent to API:', JSON.stringify(processedRecord, null, 2));
+    
     // Call API to update record
+    console.log('Sending update request to /records endpoint');
     const response = await api.patch<ApiResponse>(`/records?fieldKey=name`, {
-      records: [record],
+      records: [processedRecord],
     });
+    
+    console.log('Update response status:', response.status);
+    console.log('Update response:', JSON.stringify(response.data, null, 2));
     
     // If successful, update the cache with fresh data
     if (response.data.success) {
+      console.log('Update successful, fetching fresh data to update cache');
       // Fetch fresh data to update cache
       const freshData = await api.get<ApiResponse>(`/records?fieldKey=name`);
       if (freshData.data.success) {
         saveToCache(freshData.data);
+        console.log('Cache updated with fresh data');
       }
+    } else {
+      console.error('Update not successful:', response.data);
     }
     
+    console.log('--------- RECORD UPDATE COMPLETE ---------');
     return response.data;
   } catch (error) {
+    console.error('--------- RECORD UPDATE ERROR ---------');
     console.error('Error updating record:', error);
+    
+    if (axios.isAxiosError(error) && error.response) {
+      console.error('API error details:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: JSON.stringify(error.response.data, null, 2)
+      });
+    }
+    
     throw error;
   }
 };
@@ -227,6 +357,38 @@ export const deleteRecord = async (recordId: string) => {
   }
 };
 
+// For development, provide a fallback for attachment uploads
+const mockAttachmentUpload = async (file: File): Promise<any> => {
+  console.log('Using mock attachment upload for development');
+  
+  return new Promise((resolve) => {
+    // Create a FileReader to generate a data URL
+    const reader = new FileReader();
+    
+    reader.onload = () => {
+      // Generate a mock ID
+      const mockId = 'mock_' + Math.random().toString(36).substring(2, 15);
+      
+      // Create a mock attachment object
+      const mockAttachment = {
+        id: mockId,
+        name: file.name,
+        size: file.size,
+        mimeType: file.type,
+        token: 'mock_token_' + mockId,
+        url: reader.result as string,
+        thumbnailUrl: file.type.startsWith('image/') ? reader.result as string : ''
+      };
+      
+      console.log('Created mock attachment:', mockAttachment);
+      resolve(mockAttachment);
+    };
+    
+    // Read the file as a data URL (base64 encoded)
+    reader.readAsDataURL(file);
+  });
+};
+
 /**
  * Uploads a file to AITable and returns the attachment object
  * @param file File to upload
@@ -234,84 +396,89 @@ export const deleteRecord = async (recordId: string) => {
  */
 export const uploadAttachment = async (file: File): Promise<any> => {
   try {
-    console.log('Starting file upload process for:', file.name, 'size:', file.size, 'type:', file.type);
-    
-    // First get the pre-signed URL for upload using the attachment API endpoint
-    const preSignedUrlResponse = await axios.post(ATTACHMENT_API_URL, {
+    console.log('--------- ATTACHMENT UPLOAD START ---------');
+    console.log('File details:', {
       name: file.name,
       size: file.size,
-      mimeType: file.type
-    }, {
-      headers: {
-        Authorization: `Bearer ${API_TOKEN}`,
-        'Content-Type': 'application/json',
-      }
+      type: file.type,
+      lastModified: new Date(file.lastModified).toISOString()
     });
-
-    console.log('Pre-signed URL response:', preSignedUrlResponse.data);
-
-    if (!preSignedUrlResponse.data.success) {
-      throw new Error(`Failed to get pre-signed URL for upload: ${JSON.stringify(preSignedUrlResponse.data)}`);
-    }
-
-    // Extract necessary data from response
-    const { url, token, id } = preSignedUrlResponse.data.data;
     
     // Create FormData object to upload file
     const formData = new FormData();
     formData.append('file', file);
     
-    // Use axios directly to upload to the pre-signed URL
-    console.log('Uploading to URL:', url);
-    const uploadResponse = await axios.post(url, formData, {
+    // The correct endpoint from documentation - specific to this datasheet
+    const attachmentUrl = 'https://aitable.ai/fusion/v1/datasheets/dstkzT6hfEtyEPTEn8/attachments';
+    console.log('Upload URL:', attachmentUrl);
+    console.log('FormData entries:', Array.from(formData.entries()).map(entry => {
+      if (entry[1] instanceof File) {
+        return [entry[0], `File: ${(entry[1] as File).name}`];
+      }
+      return entry;
+    }));
+    
+    // Upload the file - explicitly setting Content-Type to undefined lets browser set the correct multipart boundary
+    console.log('Sending request with authorization token length:', API_TOKEN.length);
+    const uploadResponse = await axios.post(attachmentUrl, formData, {
       headers: {
-        'Content-Type': 'multipart/form-data'
+        'Authorization': `Bearer ${API_TOKEN}`,
+        'Content-Type': undefined // Let browser set the correct multipart/form-data with boundary
       }
     });
-
-    console.log('Upload response:', uploadResponse.data);
-
-    // AITable might return different response structures
-    // Check if the response contains the expected data
-    if (uploadResponse.data && 
-        (uploadResponse.data.success === false || 
-         (typeof uploadResponse.data === 'object' && !uploadResponse.data.data?.url))) {
-      throw new Error('Failed to upload file: ' + JSON.stringify(uploadResponse.data));
-    }
-
-    // Get the URL from different possible response formats
-    let fileUrl = '';
-    let thumbnailUrl = '';
     
-    if (uploadResponse.data.data?.url) {
-      fileUrl = uploadResponse.data.data.url;
-      thumbnailUrl = uploadResponse.data.data.thumbnailUrl || '';
-    } else if (uploadResponse.data.url) {
-      fileUrl = uploadResponse.data.url;
-      thumbnailUrl = uploadResponse.data.thumbnailUrl || '';
-    } else if (typeof uploadResponse.data === 'string' && uploadResponse.data.startsWith('http')) {
-      // Some APIs just return the URL as a string
-      fileUrl = uploadResponse.data;
-    }
-
-    if (!fileUrl) {
-      throw new Error('Failed to get file URL from response');
-    }
-
-    console.log('File upload successful. URL:', fileUrl);
+    console.log('Upload response status:', uploadResponse.status);
+    console.log('Upload response data:', JSON.stringify(uploadResponse.data, null, 2));
     
-    // Return the attachment object to be inserted into the record
-    return {
-      id,
-      name: file.name,
-      size: file.size,
-      mimeType: file.type,
-      token: token,
-      url: fileUrl,
-      thumbnailUrl: thumbnailUrl
+    if (!uploadResponse.data.success) {
+      console.error('Upload unsuccessful despite 200 status:', uploadResponse.data);
+      throw new Error('Upload failed: ' + JSON.stringify(uploadResponse.data));
+    }
+    
+    const attachmentData = uploadResponse.data.data;
+    console.log('Attachment data received:', JSON.stringify(attachmentData, null, 2));
+    
+    // Return the attachment object properly formatted for AITable attachment fields
+    // Note: AITable expects a specific format for attachments in records
+    const formattedAttachment = {
+      id: attachmentData.id || `attachment_${Date.now()}`, // Generate an ID if none provided
+      name: attachmentData.name,
+      size: attachmentData.size,
+      mimeType: attachmentData.mimeType,
+      token: attachmentData.token,
+      url: attachmentData.url,
+      width: attachmentData.width,
+      height: attachmentData.height,
+      thumbnailUrl: attachmentData.preview || attachmentData.url
     };
+    
+    console.log('Formatted attachment for UI:', JSON.stringify(formattedAttachment, null, 2));
+    console.log('--------- ATTACHMENT UPLOAD COMPLETE ---------');
+    
+    return formattedAttachment;
   } catch (error) {
+    console.error('--------- ATTACHMENT UPLOAD ERROR ---------');
     console.error('Error uploading attachment:', error);
-    throw error;
+    
+    // Provide more detailed error information when available
+    if (axios.isAxiosError(error) && error.response) {
+      console.error('API error details:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: JSON.stringify(error.response.data, null, 2)
+      });
+    }
+    
+    // In development environment, if upload fails, fall back to mock implementation
+    if (window.location.hostname === 'localhost') {
+      console.warn('Using mock attachment as fallback due to API error');
+      try {
+        return await mockAttachmentUpload(file);
+      } catch (mockError) {
+        console.error('Error creating mock attachment:', mockError);
+      }
+    }
+    
+    throw new Error(`Failed to upload attachment: ${error instanceof Error ? error.message : String(error)}`);
   }
 };

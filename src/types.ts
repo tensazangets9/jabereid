@@ -70,4 +70,5 @@ export interface AttachmentField {
   width?: number;
   height?: number;
   thumbnailUrl?: string;
+  preview?: string;
 }

@@ -21,10 +21,16 @@ const AUTHORIZED_PHONES = AUTHORIZED_USERS.map(user => user.phone);
 // Local storage keys
 const STORAGE_KEY_PHONE = 'expenses_app_phone';
 
-const AttachmentsList = ({ attachments }: { attachments?: AttachmentField[] }) => {
+const AttachmentsList = ({ attachments, isOpen, onClose }: { attachments?: AttachmentField[] | null, isOpen: boolean, onClose: () => void }) => {
   const [selectedImage, setSelectedImage] = useState<AttachmentField | null>(null);
+  const [isImageLoading, setIsImageLoading] = useState(false);
   
-  if (!attachments || attachments.length === 0) return null;
+  useEffect(() => {
+    // Log when component renders or when attachments change
+    console.log('AttachmentsList: Rendering with attachments:', attachments);
+  }, [attachments]);
+  
+  if (!isOpen || !attachments || attachments.length === 0) return null;
 
   // Get file icon based on mime type
   const getFileIcon = (mimeType: string) => {
@@ -48,82 +54,173 @@ const AttachmentsList = ({ attachments }: { attachments?: AttachmentField[] }) =
     }
   };
 
+  // Handle image selection
+  const handleImageSelect = (attachment: AttachmentField) => {
+    console.log('AttachmentsList: Selected image:', attachment);
+    setSelectedImage(attachment);
+    setIsImageLoading(true);
+  };
+
   // Filter images for gallery view
   const imageAttachments = attachments.filter(a => a.mimeType?.startsWith('image/'));
   const documentAttachments = attachments.filter(a => !a.mimeType?.startsWith('image/'));
+  
+  console.log('AttachmentsList: Image attachments:', imageAttachments);
+  console.log('AttachmentsList: Document attachments:', documentAttachments);
 
   return (
-    <div className="pt-3 border-t border-gray-200 mt-3">
-      <div className="flex items-center text-sm text-gray-500 mb-2">
-        <Paperclip className="w-4 h-4 ml-1" />
-        <span>المرفقات ({attachments.length})</span>
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto">
+        <div className="flex justify-between items-center p-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">المرفقات ({attachments.length})</h3>
+          <button 
+            className="text-gray-500 hover:text-gray-700"
+            onClick={onClose}
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <div className="p-4">
+          {/* Image gallery section */}
+          {imageAttachments.length > 0 && (
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-gray-700 mb-3">الصور ({imageAttachments.length})</h4>
+              <div className="grid grid-cols-3 gap-3">
+                {imageAttachments.map(attachment => (
+                  <div 
+                    key={attachment.id || `img-${attachment.name}-${Date.now()}`} 
+                    className="aspect-square rounded border border-gray-200 bg-gray-100 overflow-hidden cursor-pointer relative group shadow hover:shadow-md transition-shadow"
+                    onClick={() => handleImageSelect(attachment)}
+                  >
+                    {attachment.url ? (
+                      <img 
+                        src={attachment.thumbnailUrl || attachment.url} 
+                        alt={attachment.name}
+                        className="w-full h-full object-contain"
+                        onLoad={() => console.log('Image thumbnail loaded:', attachment.name)}
+                        onError={(e) => {
+                          // Log error and fallback if thumbnail fails to load
+                          console.error('Error loading thumbnail:', attachment.name, e);
+                          const target = e.target as HTMLImageElement;
+                          target.onerror = null; // Prevent infinite error loop
+                          if (target.src !== attachment.url) {
+                            console.log('Falling back to main URL for:', attachment.name);
+                            target.src = attachment.url;
+                          } else {
+                            console.log('Main URL also failed for:', attachment.name);
+                            target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWltYWdlIj48cmVjdCB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHg9IjMiIHk9IjMiIHJ4PSIyIiByeT0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBvbHlsaW5lIHBvaW50cz0iMjEgMTUgMTYgMTAgNSAyMSIvPjwvc3ZnPg==';
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                        <ImageIcon className="w-8 h-8 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 flex items-center justify-center transition-opacity">
+                      <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Document attachments section */}
+          {documentAttachments.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-3">المستندات ({documentAttachments.length})</h4>
+              <div className="space-y-2">
+                {documentAttachments.map(attachment => (
+                  <a 
+                    key={attachment.id || `doc-${attachment.name}-${Date.now()}`} 
+                    href={attachment.url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center p-3 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors"
+                    onClick={(e) => {
+                      console.log('Opening document:', attachment.name, attachment.url);
+                      if (!attachment.url) {
+                        e.preventDefault();
+                        console.error('No URL available for document:', attachment.name);
+                      }
+                    }}
+                  >
+                    {getFileIcon(attachment.mimeType)}
+                    <div className="mr-3 overflow-hidden flex-1">
+                      <div className="text-sm font-medium text-gray-900 truncate">{attachment.name}</div>
+                      <div className="text-xs text-gray-500">{formatFileSize(attachment.size)}</div>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-gray-400 shrink-0" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
       
-      {/* Image gallery section */}
-      {imageAttachments.length > 0 && (
-        <div className="mb-3">
-          <div className="grid grid-cols-3 gap-2">
-            {imageAttachments.map(attachment => (
-              <div 
-                key={attachment.id} 
-                className="aspect-square rounded bg-gray-100 overflow-hidden cursor-pointer relative group"
-                onClick={() => setSelectedImage(attachment)}
-              >
-                <img 
-                  src={attachment.thumbnailUrl || attachment.url} 
-                  alt={attachment.name}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 flex items-center justify-center transition-opacity">
-                  <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      
-      {/* Other attachments */}
-      {documentAttachments.length > 0 && (
-        <div className="grid grid-cols-2 gap-2">
-          {documentAttachments.map(attachment => (
-            <a 
-              key={attachment.id} 
-              href={attachment.url} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center p-2 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors"
-            >
-              {getFileIcon(attachment.mimeType)}
-              <div className="mr-2 overflow-hidden flex-1">
-                <div className="text-xs font-medium text-gray-900 truncate">{attachment.name}</div>
-                <div className="text-xs text-gray-500">{formatFileSize(attachment.size)}</div>
-              </div>
-              <ExternalLink className="w-3 h-3 text-gray-400 shrink-0" />
-            </a>
-          ))}
-        </div>
-      )}
-      
-      {/* Image preview modal */}
+      {/* Image preview modal with loading state */}
       {selectedImage && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4" onClick={() => setSelectedImage(null)}>
-          <div className="relative max-w-4xl max-h-full">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-[60]" 
+          onClick={() => setSelectedImage(null)}
+        >
+          <div 
+            className="relative w-full h-full flex flex-col items-center justify-center p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
             <button 
-              className="absolute top-3 right-3 bg-gray-800 bg-opacity-50 text-white p-2 rounded-full"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedImage(null);
-              }}
+              className="absolute top-4 right-4 bg-gray-800 bg-opacity-80 text-white p-2 rounded-full hover:bg-opacity-100 transition-all z-20"
+              onClick={() => setSelectedImage(null)}
             >
-              <X className="w-5 h-5" />
+              <X className="w-6 h-6" />
             </button>
-            <img 
-              src={selectedImage.url} 
-              alt={selectedImage.name} 
-              className="max-w-full max-h-[calc(100vh-2rem)] rounded object-contain"
-            />
-            <div className="text-white text-sm mt-2">{selectedImage.name}</div>
+            
+            {/* Image container */}
+            <div className="relative flex items-center justify-center">
+              {isImageLoading && (
+                <div className="absolute inset-0 flex items-center justify-center z-10">
+                  <div className="w-12 h-12 border-4 border-t-transparent border-white rounded-full animate-spin"></div>
+                </div>
+              )}
+              {selectedImage.url ? (
+                <img 
+                  src={selectedImage.url} 
+                  alt={selectedImage.name} 
+                  style={{ maxHeight: '80vh', maxWidth: '90vw', objectFit: 'contain' }}
+                  className="rounded-lg shadow-2xl"
+                  onLoad={() => {
+                    console.log('Full-size image loaded:', selectedImage.name);
+                    setIsImageLoading(false);
+                  }}
+                  onError={(e) => {
+                    console.error('Error loading full-size image:', selectedImage.name);
+                    setIsImageLoading(false);
+                    const target = e.target as HTMLImageElement;
+                    target.onerror = null; // Prevent infinite error loop
+                    target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWltYWdlIj48cmVjdCB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHg9IjMiIHk9IjMiIHJ4PSIyIiByeT0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBvbHlsaW5lIHBvaW50cz0iMjEgMTUgMTYgMTAgNSAyMSIvPjwvc3ZnPg==';
+                  }}
+                />
+              ) : (
+                <div className="bg-gray-800 rounded-lg p-8 flex items-center justify-center">
+                  <ImageIcon className="w-16 h-16 text-gray-500" />
+                </div>
+              )}
+            </div>
+            
+            {/* Image info */}
+            <div className="text-white mt-6 text-center max-w-2xl">
+              <h3 className="text-lg font-medium mb-1">{selectedImage.name}</h3>
+              <p className="text-gray-400 text-sm">
+                {formatFileSize(selectedImage.size)}
+                {selectedImage.width && selectedImage.height && (
+                  <span> • {selectedImage.width}×{selectedImage.height}px</span>
+                )}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -140,6 +237,8 @@ function App() {
   const [editingRecord, setEditingRecord] = useState<Record | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
+  const [selectedAttachments, setSelectedAttachments] = useState<AttachmentField[] | null>(null);
+  const [isAttachmentsDialogOpen, setIsAttachmentsDialogOpen] = useState(false);
   
   // Authentication states
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -514,6 +613,30 @@ function App() {
     fetchRecords(true); // Force refresh
   };
 
+  // Function to validate attachments before displaying them
+  const validateAndShowAttachments = (attachments?: AttachmentField[]) => {
+    console.log('Validating attachments:', attachments);
+    
+    if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
+      console.error('No attachments to display');
+      return;
+    }
+    
+    // Filter out any invalid attachment objects that don't have required properties
+    const validAttachments = attachments.filter(att => 
+      att && typeof att === 'object' && att.url && att.name && att.mimeType
+    );
+    
+    if (validAttachments.length === 0) {
+      console.error('No valid attachments found in:', attachments);
+      return;
+    }
+    
+    console.log('Valid attachments:', validAttachments);
+    setSelectedAttachments(validAttachments);
+    setIsAttachmentsDialogOpen(true);
+  };
+
   // Phone Authentication Screen
   if (!isAuthenticated) {
     return (
@@ -832,12 +955,22 @@ function App() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 text-sm mb-3">
-                    <div>
-                      <span className="text-gray-500">الوحدة:</span>
-                      <span className="mr-1 text-gray-900">{latestRecord.fields.Unit || 'غير محدد'}</span>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-gray-500">الوحدة:</span>
+                        <span className="mr-1 text-gray-900">{latestRecord.fields.Unit || 'غير محدد'}</span>
+                      </div>
+                      {latestRecord.fields.Attachment && latestRecord.fields.Attachment.length > 0 && (
+                        <button
+                          onClick={() => validateAndShowAttachments(latestRecord.fields.Attachment)}
+                          className="flex items-center text-blue-500 hover:text-blue-700"
+                          aria-label="عرض المرفقات"
+                        >
+                          <Paperclip className="w-4 h-4 ml-1" />
+                          <span className="text-xs">{latestRecord.fields.Attachment.length} مرفقات</span>
+                        </button>
+                      )}
                     </div>
-                    
-                    <AttachmentsList attachments={latestRecord.fields.Attachment} />
                   </div>
                 </div>
 
@@ -849,6 +982,7 @@ function App() {
                         <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">الكمية</th>
                         <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">سعر الوحدة</th>
                         <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">التكلفة</th>
+                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">المرفقات</th>
                         {!isReadOnly && (
                           <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">الإجراءات</th>
                         )}
@@ -871,24 +1005,27 @@ function App() {
                               <SaudiRiyalSymbol size={14} className="text-gray-700" />
                             </div>
                           </td>
+                          <td className="px-3 py-2 text-sm text-gray-500 text-center">
+                            {record.fields.Attachment && record.fields.Attachment.length > 0 && (
+                              <button
+                                onClick={() => validateAndShowAttachments(record.fields.Attachment)}
+                                className="text-blue-500 hover:text-blue-700 p-1"
+                                aria-label="عرض المرفقات"
+                                title={`${record.fields.Attachment?.length} مرفقات`}
+                              >
+                                <Paperclip className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
                           {!isReadOnly && (
-                            <td className="px-3 py-2 text-sm text-gray-500 text-center">
-                              <div className="flex items-center justify-center space-x-2">
-                                <button
-                                  onClick={() => confirmDelete(record.recordId!)}
-                                  className="text-red-600 hover:text-red-900 p-1"
-                                  aria-label="حذف"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => setEditingRecord(record)}
-                                  className="text-indigo-600 hover:text-indigo-900 p-1"
-                                  aria-label="تعديل"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                              </div>
+                            <td className="px-3 py-2 text-sm font-medium text-gray-900">
+                              <button
+                                onClick={() => confirmDelete(record.recordId!)}
+                                className="text-red-600 hover:text-red-900 p-1"
+                                aria-label="حذف"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </td>
                           )}
                         </tr>
@@ -901,6 +1038,18 @@ function App() {
           })}
         </div>
       </div>
+
+      {/* Attachments Dialog */}
+      {selectedAttachments && isAttachmentsDialogOpen && (
+        <AttachmentsList
+          attachments={selectedAttachments}
+          isOpen={isAttachmentsDialogOpen}
+          onClose={() => {
+            setIsAttachmentsDialogOpen(false);
+            setSelectedAttachments(null);
+          }}
+        />
+      )}
     </div>
   );
 }

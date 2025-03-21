@@ -193,6 +193,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
     }
     
     // Add attachments to the form data
+    console.log('Adding attachments to form data for submission:', attachments);
     data.Attachment = attachments;
     
     const cost = data.Quantity * data.UnitPrice;
@@ -202,31 +203,79 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
   // Handle file selection from the file input
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
+    console.log('--------- FILE SELECTION START ---------');
+    
+    if (!files || files.length === 0) {
+      console.log('No files selected');
+      return;
+    }
+    
+    console.log(`Selected ${files.length} file(s):`, 
+      Array.from(files).map(f => ({ name: f.name, size: f.size, type: f.type }))
+    );
     
     setUploadError(null);
     setIsUploading(true);
+    console.log('Setting isUploading to true');
     
     try {
       // Process each file
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        console.log(`Processing file ${i+1}/${files.length}:`, file.name);
         
         // Upload the file
+        console.log('Calling uploadAttachment function...');
         const attachmentData = await uploadAttachment(file);
+        console.log('Received attachment data from upload:', attachmentData);
+        
+        // Ensure the attachment has an ID
+        if (!attachmentData.id) {
+          console.log('Attachment is missing ID, generating one...');
+          attachmentData.id = `attachment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        }
+        
+        // Verify the required fields exist
+        if (!attachmentData.token) {
+          console.error('Attachment is missing token!', attachmentData);
+          throw new Error('Attachment data is missing token');
+        }
         
         // Add the returned attachment to the list
-        setAttachments(prev => [...prev, attachmentData]);
+        console.log('Adding attachment to state with ID:', attachmentData.id);
+        console.log('Current attachments count:', attachments.length);
+        setAttachments(prev => {
+          // Check if we already have this attachment to avoid duplicates
+          const exists = prev.some(att => 
+            att.token === attachmentData.token || 
+            att.id === attachmentData.id || 
+            att.name === attachmentData.name
+          );
+          
+          if (exists) {
+            console.log('Attachment already exists in list, not adding duplicate');
+            return prev;
+          }
+          
+          const newAttachments = [...prev, attachmentData];
+          console.log('New attachments list:', newAttachments);
+          return newAttachments;
+        });
       }
+      console.log('All files processed successfully');
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error('Upload failed in handleFileChange:', error);
       setUploadError('فشل في رفع الملف. يرجى المحاولة مرة أخرى.');
+      console.log('Set upload error message');
     } finally {
       setIsUploading(false);
+      console.log('Setting isUploading to false');
       // Reset the file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+        console.log('Reset file input');
       }
+      console.log('--------- FILE SELECTION COMPLETE ---------');
     }
   };
 
@@ -341,7 +390,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
           {showDropdown && (
             <div className="absolute z-10 w-full mt-1 bg-white shadow-lg max-h-60 rounded-md overflow-auto border border-gray-300">
               {filteredItems.length > 0 ? (
-                <>
+                <React.Fragment key="items-with-results">
                   {filteredItems.map((item, index) => (
                     <div
                       key={`${item}-${index}`}
@@ -359,6 +408,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
                   {sanitizedFilter && 
                    !filteredItems.some(item => item.toLowerCase() === sanitizedFilter) && (
                     <div 
+                      key="add-new-item"
                       className="px-4 py-2 cursor-pointer hover:bg-indigo-50 text-right text-indigo-600 border-t border-gray-200"
                       onClick={() => {
                         handleSelectItem(itemFilter);
@@ -368,12 +418,13 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
                       {itemFilter.trim()}
                     </div>
                   )}
-                </>
+                </React.Fragment>
               ) : (
-                <>
-                  <div className="px-4 py-2 text-gray-500 text-right">لا توجد نتائج</div>
+                <React.Fragment key="items-no-results">
+                  <div key="no-results" className="px-4 py-2 text-gray-500 text-right">لا توجد نتائج</div>
                   {sanitizedFilter && (
                     <div 
+                      key="add-new-item"
                       className="px-4 py-2 cursor-pointer hover:bg-indigo-50 text-right text-indigo-600 border-t border-gray-200"
                       onClick={() => {
                         handleSelectItem(itemFilter);
@@ -383,7 +434,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
                       {itemFilter.trim()}
                     </div>
                   )}
-                </>
+                </React.Fragment>
               )}
             </div>
           )}
@@ -434,7 +485,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
             {showUnitDropdown && (
               <div className="absolute z-10 w-full mt-1 bg-white shadow-lg max-h-60 rounded-md overflow-auto border border-gray-300">
                 {filteredUnits.length > 0 ? (
-                  <>
+                  <React.Fragment key="units-with-results">
                     {filteredUnits.map((unit, index) => (
                       <div
                         key={`${unit}-${index}`}
@@ -452,6 +503,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
                     {sanitizedUnitFilter && 
                      !filteredUnits.some(unit => unit.toLowerCase() === sanitizedUnitFilter) && (
                       <div 
+                        key="add-new-unit"
                         className="px-4 py-2 cursor-pointer hover:bg-indigo-50 text-right text-indigo-600 border-t border-gray-200"
                         onClick={() => {
                           handleSelectUnit(unitFilter);
@@ -461,12 +513,13 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
                         {unitFilter.trim()}
                       </div>
                     )}
-                  </>
+                  </React.Fragment>
                 ) : (
-                  <>
-                    <div className="px-4 py-2 text-gray-500 text-right">لا توجد نتائج</div>
+                  <React.Fragment key="units-no-results">
+                    <div key="no-unit-results" className="px-4 py-2 text-gray-500 text-right">لا توجد نتائج</div>
                     {sanitizedUnitFilter && (
                       <div 
+                        key="add-new-unit"
                         className="px-4 py-2 cursor-pointer hover:bg-indigo-50 text-right text-indigo-600 border-t border-gray-200"
                         onClick={() => {
                           handleSelectUnit(unitFilter);
@@ -476,7 +529,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
                         {unitFilter.trim()}
                       </div>
                     )}
-                  </>
+                  </React.Fragment>
                 )}
               </div>
             )}
@@ -577,7 +630,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
             {imageAttachments.length > 0 && (
               <div className="grid grid-cols-3 gap-2 mb-3">
                 {imageAttachments.map(attachment => (
-                  <div key={attachment.id} className="relative group">
+                  <div key={attachment.id || `img-${attachment.name}-${Date.now()}`} className="relative group">
                     <div 
                       className="aspect-square rounded bg-gray-100 overflow-hidden cursor-pointer relative"
                       onClick={() => setSelectedImage(attachment)}
@@ -608,7 +661,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
 
             {/* Documents list */}
             {documentAttachments.map(attachment => (
-              <div key={attachment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
+              <div key={attachment.id || `doc-${attachment.name}-${Date.now()}`} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
                 <div className="flex items-center">
                   {getFileIcon(attachment.mimeType)}
                   <div className="ml-3">
