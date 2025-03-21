@@ -13,6 +13,7 @@ export interface Record {
     "Created time"?: string;
     "Last edited time"?: string;
     Attachment?: AttachmentField[];
+    "Attachment URL"?: string;
     [key: string]: any; // Allow for additional fields that might come from the API
   };
 }

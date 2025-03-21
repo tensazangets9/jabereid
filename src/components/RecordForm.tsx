@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { Record, AttachmentField } from '../types';
 import { SaudiRiyalSymbol } from './SaudiRiyalSymbol';
-import { uploadAttachment } from '../api';
+import { uploadAttachment, uploadFilesToAzure } from '../api';
 import { Upload, X, FileText, Image as ImageIcon, File as FileIcon, Paperclip, Maximize2 } from 'lucide-react';
 
 interface RecordFormProps {
@@ -12,6 +12,7 @@ interface RecordFormProps {
   isEditing?: boolean;
   predefinedItems?: string[];
   predefinedUnits?: string[];
+  isSubmitting?: boolean;
 }
 
 const categories = [
@@ -48,8 +49,16 @@ const defaultItems = [
   'زيت',
 ];
 
-export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefinedItems = [], predefinedUnits = [] }: RecordFormProps) {
-  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<Record['fields']>({
+export function RecordForm({ 
+  onSubmit, 
+  onCancel, 
+  initialData, 
+  isEditing, 
+  predefinedItems = [], 
+  predefinedUnits = [], 
+  isSubmitting = false 
+}: RecordFormProps) {
+  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting: formSubmitting } } = useForm<Record['fields']>({
     defaultValues: initialData || {
       EidYear: '1446',
       Quantity: 1,
@@ -74,7 +83,9 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
   const [registeredUnit, setRegisteredUnit] = useState(initialData?.Unit?.trim() || '');
   
   // Attachment states
-  const [attachments, setAttachments] = useState<AttachmentField[]>(initialData?.Attachment || []);
+  const [attachments, setAttachments] = useState<AttachmentField[]>([]);
+  const [attachmentUrls, setAttachmentUrls] = useState<string[]>([]);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<AttachmentField | null>(null);
@@ -203,85 +214,53 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
   // Handle file selection from the file input
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    console.log('--------- FILE SELECTION START ---------');
+    if (!files || files.length === 0) return;
     
-    if (!files || files.length === 0) {
-      console.log('No files selected');
-      return;
-    }
-    
-    console.log(`Selected ${files.length} file(s):`, 
-      Array.from(files).map(f => ({ name: f.name, size: f.size, type: f.type }))
-    );
-    
-    setUploadError(null);
-    setIsUploading(true);
-    console.log('Setting isUploading to true');
+    setIsUploadingAttachments(true);
     
     try {
-      // Process each file
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        console.log(`Processing file ${i+1}/${files.length}:`, file.name);
-        
-        // Upload the file
-        console.log('Calling uploadAttachment function...');
-        const attachmentData = await uploadAttachment(file);
-        console.log('Received attachment data from upload:', attachmentData);
-        
-        // Ensure the attachment has an ID
-        if (!attachmentData.id) {
-          console.log('Attachment is missing ID, generating one...');
-          attachmentData.id = `attachment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        }
-        
-        // Verify the required fields exist
-        if (!attachmentData.token) {
-          console.error('Attachment is missing token!', attachmentData);
-          throw new Error('Attachment data is missing token');
-        }
-        
-        // Add the returned attachment to the list
-        console.log('Adding attachment to state with ID:', attachmentData.id);
-        console.log('Current attachments count:', attachments.length);
-        setAttachments(prev => {
-          // Check if we already have this attachment to avoid duplicates
-          const exists = prev.some(att => 
-            att.token === attachmentData.token || 
-            att.id === attachmentData.id || 
-            att.name === attachmentData.name
-          );
-          
-          if (exists) {
-            console.log('Attachment already exists in list, not adding duplicate');
-            return prev;
-          }
-          
-          const newAttachments = [...prev, attachmentData];
-          console.log('New attachments list:', newAttachments);
-          return newAttachments;
-        });
-      }
-      console.log('All files processed successfully');
+      // Convert FileList to array
+      const fileArray = Array.from(files);
+      
+      // Upload files to Azure Blob Storage
+      const urls = await uploadFilesToAzure(fileArray);
+      console.log('Uploaded files to Azure, URLs:', urls);
+      
+      // Store the URLs for submission
+      setAttachmentUrls(prev => [...prev, ...urls]);
+      
+      // Also create attachment objects for UI display
+      const newAttachments = await Promise.all(
+        fileArray.map(async (file, index) => {
+          const data = await uploadAttachment(file);
+          return {
+            id: data.id,
+            name: data.name,
+            size: data.size,
+            mimeType: data.mimeType,
+            token: '', // Not needed for Azure
+            url: urls[index], // Use the Azure URL
+            width: data.width,
+            height: data.height,
+            thumbnailUrl: data.url // Use the same URL for thumbnail
+          };
+        })
+      );
+      
+      // Update the attachments state for UI display
+      setAttachments(prev => [...prev, ...newAttachments]);
     } catch (error) {
-      console.error('Upload failed in handleFileChange:', error);
-      setUploadError('فشل في رفع الملف. يرجى المحاولة مرة أخرى.');
-      console.log('Set upload error message');
+      console.error('Error uploading files:', error);
+      alert(`Error uploading files: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
-      setIsUploading(false);
-      console.log('Setting isUploading to false');
-      // Reset the file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-        console.log('Reset file input');
-      }
-      console.log('--------- FILE SELECTION COMPLETE ---------');
+      setIsUploadingAttachments(false);
     }
   };
 
   // Remove attachment from the list
-  const removeAttachment = (attachmentId: string) => {
-    setAttachments(prev => prev.filter(att => att.id !== attachmentId));
+  const removeAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+    setAttachmentUrls(prev => prev.filter((_, i) => i !== index));
   };
 
   // Get file icon based on mime type
@@ -310,8 +289,21 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
   const imageAttachments = attachments.filter(a => a.mimeType?.startsWith('image/'));
   const documentAttachments = attachments.filter(a => !a.mimeType?.startsWith('image/'));
   
+  const handleFormSubmit = (data: any) => {
+    const processedData = calculateCost(data);
+    // Add attachment URLs to the form data as JSON string array
+    if (attachmentUrls.length > 0) {
+      processedData["Attachment URL"] = JSON.stringify(attachmentUrls);
+    }
+    console.log('Form submission data:', processedData);
+    onSubmit(processedData);
+  };
+
+  // Determine if form should be disabled
+  const isFormDisabled = isSubmitting || isUploadingAttachments;
+
   return (
-    <form onSubmit={handleSubmit((data) => onSubmit(calculateCost(data)))} className="space-y-6">
+    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
       <div className="space-y-6">
         {!isEditing ? (
           <input type="hidden" {...register('EidYear')} />
@@ -590,16 +582,17 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
           multiple
           className="hidden"
           accept="image/*,application/pdf,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          disabled={isFormDisabled}
         />
         
         {/* Upload button */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
+          disabled={isFormDisabled}
           className="flex items-center justify-center w-full py-3 px-4 border-2 border-dashed border-gray-300 rounded-md hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
         >
-          {isUploading ? (
+          {isUploadingAttachments ? (
             <div className="flex items-center text-gray-500">
               <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-indigo-500 mr-3"></div>
               <span>جاري الرفع...</span>
@@ -648,7 +641,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        removeAttachment(attachment.id);
+                        removeAttachment(attachments.indexOf(attachment));
                       }}
                       className="absolute -top-1 -right-1 bg-white rounded-full shadow-md p-1 text-gray-400 hover:text-red-500 transition-colors"
                     >
@@ -671,7 +664,7 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
                 </div>
                 <button
                   type="button"
-                  onClick={() => removeAttachment(attachment.id)}
+                  onClick={() => removeAttachment(attachments.indexOf(attachment))}
                   className="text-gray-400 hover:text-red-500 transition-colors"
                 >
                   <X className="w-4 h-4" />
@@ -712,22 +705,17 @@ export function RecordForm({ onSubmit, onCancel, initialData, isEditing, predefi
         <button
           type="button"
           onClick={onCancel}
-          className="w-1/3 px-4 py-3 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
-          disabled={isSubmitting || isUploading}
+          className={`w-1/3 px-4 py-3 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 ${isFormDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          disabled={isFormDisabled}
         >
           إلغاء
         </button>
         <button
           type="submit"
-          className="w-2/3 px-4 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-          disabled={isSubmitting || isUploading}
+          className={`w-2/3 px-4 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${isFormDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          disabled={isFormDisabled}
         >
-          {isUploading ? (
-            <div className="flex items-center justify-center">
-              <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-              <span>جاري الرفع...</span>
-            </div>
-          ) : isSubmitting ? (
+          {isSubmitting ? (
             <div className="flex items-center justify-center">
               <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
               <span>جاري الحفظ...</span>

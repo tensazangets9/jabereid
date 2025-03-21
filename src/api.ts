@@ -145,6 +145,133 @@ export const getRecords = async (forceRefresh = false) => {
   }
 };
 
+// Azure Blob Storage configuration
+const AZURE_STORAGE_ACCOUNT = "sultaneng";
+const AZURE_CONTAINER = "sultangengwebsite";
+const AZURE_SAS_TOKEN = "?sv=2023-01-03&st=2025-03-21T11%3A53%3A56Z&se=2025-04-22T11%3A53%3A00Z&sr=c&sp=racwdxltf&sig=O4LWckRIsuxZaCE4ZTJmi7Bl38QocgXKBIv9PltPlGc%3D";
+const AZURE_BASE_URL = `https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_CONTAINER}`;
+
+// Upload file to Azure Blob Storage
+export const uploadToAzureBlob = async (file: File): Promise<string> => {
+  console.log('--------- AZURE BLOB UPLOAD START ---------');
+  console.log('Uploading file to Azure Blob Storage:', file.name);
+  
+  try {
+    // Create a unique blob name using timestamp and original filename
+    const blobName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const uploadUrl = `${AZURE_BASE_URL}/${blobName}${AZURE_SAS_TOKEN}`;
+    
+    console.log('Uploading to Azure URL:', uploadUrl);
+    
+    // Create headers for the upload
+    const headers = {
+      'x-ms-blob-type': 'BlockBlob',
+      'Content-Type': file.type || 'application/octet-stream'
+    };
+    
+    // Upload the file using PUT
+    const response = await axios.put(uploadUrl, file, { headers });
+    
+    console.log('Azure upload response:', response.status, response.statusText);
+    
+    // Return the public URL (without SAS token for storage)
+    const publicUrl = `${AZURE_BASE_URL}/${blobName}`;
+    console.log('File uploaded successfully, public URL:', publicUrl);
+    
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading to Azure Blob Storage:', error);
+    if (axios.isAxiosError(error) && error.response) {
+      console.error('Azure API error details:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      });
+    }
+    throw new Error(`Failed to upload to Azure: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Upload multiple files to Azure Blob Storage and return an array of URLs
+export const uploadFilesToAzure = async (files: File[]): Promise<string[]> => {
+  console.log(`Uploading ${files.length} files to Azure Blob Storage`);
+  
+  const uploadPromises = files.map(file => uploadToAzureBlob(file));
+  return Promise.all(uploadPromises);
+};
+
+// Updated attachment upload function to use Azure Blob Storage
+export const uploadAttachment = async (file: File): Promise<any> => {
+  console.log('--------- ATTACHMENT UPLOAD START ---------');
+  console.log('Uploading attachment:', file.name, file.type, file.size);
+  
+  try {
+    // Upload the file to Azure Blob Storage
+    const azureUrl = await uploadToAzureBlob(file);
+    
+    // Generate attachment metadata (no need for AITable tokens anymore)
+    const attachmentData = {
+      id: `attachment_${Date.now()}`,
+      name: file.name,
+      size: file.size,
+      mimeType: file.type || 'application/octet-stream',
+      url: azureUrl,
+      // For images, try to get dimensions
+      width: undefined,
+      height: undefined
+    };
+    
+    // If it's an image, try to get dimensions
+    if (file.type.startsWith('image/')) {
+      try {
+        const dimensions = await getImageDimensions(file);
+        attachmentData.width = dimensions.width;
+        attachmentData.height = dimensions.height;
+      } catch (err) {
+        console.warn('Could not get image dimensions:', err);
+      }
+    }
+    
+    console.log('Attachment data prepared:', attachmentData);
+    
+    return attachmentData;
+  } catch (error) {
+    console.error('--------- ATTACHMENT UPLOAD ERROR ---------');
+    console.error('Error uploading attachment:', error);
+    
+    // In development environment, if upload fails, fall back to mock implementation
+    if (window.location.hostname === 'localhost') {
+      console.warn('Using mock attachment as fallback due to API error');
+      try {
+        return await mockAttachmentUpload(file);
+      } catch (mockError) {
+        console.error('Error creating mock attachment:', mockError);
+      }
+    }
+    
+    throw new Error(`Failed to upload attachment: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Helper function to get image dimensions
+const getImageDimensions = (file: File): Promise<{width: number, height: number}> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve({
+        width: img.width,
+        height: img.height
+      });
+      URL.revokeObjectURL(img.src); // Clean up
+    };
+    img.onerror = () => {
+      reject(new Error('Failed to load image for dimension calculation'));
+      URL.revokeObjectURL(img.src); // Clean up
+    };
+    img.src = URL.createObjectURL(file);
+  });
+};
+
 export const addRecord = async (record: Record) => {
   // Check if we're online
   if (!isOnline()) {
@@ -193,6 +320,19 @@ export const addRecord = async (record: Record) => {
       });
       
       console.log('Formatted attachments for API:', JSON.stringify(processedRecord.fields.Attachment, null, 2));
+    }
+    
+    // If we have attachments in the upload UI, convert them to a JSON string in the Attachment URL field
+    if (processedRecord.fields.attachmentUrls && Array.isArray(processedRecord.fields.attachmentUrls)) {
+      console.log('Converting attachment URLs to JSON string:', processedRecord.fields.attachmentUrls);
+      processedRecord.fields["Attachment URL"] = JSON.stringify(processedRecord.fields.attachmentUrls);
+      // Remove the temp field
+      delete processedRecord.fields.attachmentUrls;
+    }
+    
+    // Remove legacy Attachment field if present
+    if (processedRecord.fields.Attachment) {
+      delete processedRecord.fields.Attachment;
     }
     
     console.log('Final record being sent to API:', JSON.stringify(processedRecord, null, 2));
@@ -287,6 +427,19 @@ export const updateRecord = async (record: Record) => {
       console.log('Formatted attachments for API:', JSON.stringify(processedRecord.fields.Attachment, null, 2));
     } else {
       console.log('No attachments in record');
+    }
+    
+    // If we have attachments in the upload UI, convert them to a JSON string in the Attachment URL field
+    if (processedRecord.fields.attachmentUrls && Array.isArray(processedRecord.fields.attachmentUrls)) {
+      console.log('Converting attachment URLs to JSON string:', processedRecord.fields.attachmentUrls);
+      processedRecord.fields["Attachment URL"] = JSON.stringify(processedRecord.fields.attachmentUrls);
+      // Remove the temp field
+      delete processedRecord.fields.attachmentUrls;
+    }
+    
+    // Remove legacy Attachment field if present
+    if (processedRecord.fields.Attachment) {
+      delete processedRecord.fields.Attachment;
     }
     
     console.log('Final record being sent to API:', JSON.stringify(processedRecord, null, 2));
@@ -387,98 +540,4 @@ const mockAttachmentUpload = async (file: File): Promise<any> => {
     // Read the file as a data URL (base64 encoded)
     reader.readAsDataURL(file);
   });
-};
-
-/**
- * Uploads a file to AITable and returns the attachment object
- * @param file File to upload
- * @returns Promise with attachment object that can be added to a record
- */
-export const uploadAttachment = async (file: File): Promise<any> => {
-  try {
-    console.log('--------- ATTACHMENT UPLOAD START ---------');
-    console.log('File details:', {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      lastModified: new Date(file.lastModified).toISOString()
-    });
-    
-    // Create FormData object to upload file
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    // The correct endpoint from documentation - specific to this datasheet
-    const attachmentUrl = 'https://aitable.ai/fusion/v1/datasheets/dstkzT6hfEtyEPTEn8/attachments';
-    console.log('Upload URL:', attachmentUrl);
-    console.log('FormData entries:', Array.from(formData.entries()).map(entry => {
-      if (entry[1] instanceof File) {
-        return [entry[0], `File: ${(entry[1] as File).name}`];
-      }
-      return entry;
-    }));
-    
-    // Upload the file - explicitly setting Content-Type to undefined lets browser set the correct multipart boundary
-    console.log('Sending request with authorization token length:', API_TOKEN.length);
-    const uploadResponse = await axios.post(attachmentUrl, formData, {
-      headers: {
-        'Authorization': `Bearer ${API_TOKEN}`,
-        'Content-Type': undefined // Let browser set the correct multipart/form-data with boundary
-      }
-    });
-    
-    console.log('Upload response status:', uploadResponse.status);
-    console.log('Upload response data:', JSON.stringify(uploadResponse.data, null, 2));
-    
-    if (!uploadResponse.data.success) {
-      console.error('Upload unsuccessful despite 200 status:', uploadResponse.data);
-      throw new Error('Upload failed: ' + JSON.stringify(uploadResponse.data));
-    }
-    
-    const attachmentData = uploadResponse.data.data;
-    console.log('Attachment data received:', JSON.stringify(attachmentData, null, 2));
-    
-    // Return the attachment object properly formatted for AITable attachment fields
-    // Note: AITable expects a specific format for attachments in records
-    const formattedAttachment = {
-      id: attachmentData.id || `attachment_${Date.now()}`, // Generate an ID if none provided
-      name: attachmentData.name,
-      size: attachmentData.size,
-      mimeType: attachmentData.mimeType,
-      token: attachmentData.token,
-      url: attachmentData.url,
-      width: attachmentData.width,
-      height: attachmentData.height,
-      thumbnailUrl: attachmentData.preview || attachmentData.url
-    };
-    
-    console.log('Formatted attachment for UI:', JSON.stringify(formattedAttachment, null, 2));
-    console.log('--------- ATTACHMENT UPLOAD COMPLETE ---------');
-    
-    return formattedAttachment;
-  } catch (error) {
-    console.error('--------- ATTACHMENT UPLOAD ERROR ---------');
-    console.error('Error uploading attachment:', error);
-    
-    // Provide more detailed error information when available
-    if (axios.isAxiosError(error) && error.response) {
-      console.error('API error details:', {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        data: JSON.stringify(error.response.data, null, 2)
-      });
-    }
-    
-    // In development environment, if upload fails, fall back to mock implementation
-    if (window.location.hostname === 'localhost') {
-      console.warn('Using mock attachment as fallback due to API error');
-      try {
-        return await mockAttachmentUpload(file);
-      } catch (mockError) {
-        console.error('Error creating mock attachment:', mockError);
-      }
-    }
-    
-    throw new Error(`Failed to upload attachment: ${error instanceof Error ? error.message : String(error)}`);
-  }
 };

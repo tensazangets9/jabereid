@@ -1,10 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, PhoneCall, Lock, Eye, LogOut, User, Search, BarChart, RefreshCw, Wifi, WifiOff, Paperclip, ExternalLink, Image as ImageIcon, FileText, File as FileIcon, Maximize2 } from 'lucide-react';
-import { Record, Field, AttachmentField } from './types';
+import { Record, Field, AttachmentField as BaseAttachmentField } from './types';
 import { getRecords, addRecord, updateRecord, deleteRecord } from './api';
 import { RecordForm } from './components/RecordForm';
 import { SaudiRiyalSymbol } from './components/SaudiRiyalSymbol';
 import ExpenseCharts from './components/ExpenseCharts';
+
+// Extend the AttachmentField type to include fullSizeUrl
+interface AttachmentField extends BaseAttachmentField {
+  fullSizeUrl?: string;
+}
+
+// Azure Blob Storage configuration
+const AZURE_STORAGE_ACCOUNT = "sultaneng";
+const AZURE_CONTAINER = "sultangengwebsite";
+const AZURE_SAS_TOKEN = "?sv=2023-01-03&st=2025-03-21T11%3A53%3A56Z&se=2025-04-22T11%3A53%3A00Z&sr=c&sp=racwdxltf&sig=O4LWckRIsuxZaCE4ZTJmi7Bl38QocgXKBIv9PltPlGc%3D";
+const AZURE_BASE_URL = `https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_CONTAINER}`;
 
 // List of authorized users with their phone numbers and names
 const AUTHORIZED_USERS = [
@@ -24,10 +35,35 @@ const STORAGE_KEY_PHONE = 'expenses_app_phone';
 const AttachmentsList = ({ attachments, isOpen, onClose }: { attachments?: AttachmentField[] | null, isOpen: boolean, onClose: () => void }) => {
   const [selectedImage, setSelectedImage] = useState<AttachmentField | null>(null);
   const [isImageLoading, setIsImageLoading] = useState(false);
+  // Track which images have failed loading with their final fallback status
+  const [imageLoadFailed, setImageLoadFailed] = useState<{[key: string]: boolean}>({});
+  // Track blob URLs for images we've successfully loaded
+  const [blobUrls, setBlobUrls] = useState<{[key: string]: string}>({});
+  // Track which images have attempted fallback options
+  const [fallbackAttempted, setFallbackAttempted] = useState<{[key: string]: boolean}>({});
   
+  // Maximum number of load attempts per image to prevent infinite loops
+  const MAX_LOAD_ATTEMPTS = 1;
+  
+  // Cleanup blob URLs on component unmount
   useEffect(() => {
-    // Log when component renders or when attachments change
+    return () => {
+      // Revoke any blob URLs to prevent memory leaks
+      Object.values(blobUrls).forEach((url) => {
+        if (url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+        }
+      });
+    };
+  }, [blobUrls]);
+  
+  // Reset states when attachments change
+  useEffect(() => {
     console.log('AttachmentsList: Rendering with attachments:', attachments);
+    
+    // Reset the failed states when attachments change
+    setImageLoadFailed({});
+    setFallbackAttempted({});
   }, [attachments]);
   
   if (!isOpen || !attachments || attachments.length === 0) return null;
@@ -54,11 +90,132 @@ const AttachmentsList = ({ attachments, isOpen, onClose }: { attachments?: Attac
     }
   };
 
+  // Generate a placeholder image based on the file type
+  const getPlaceholderImage = (attachment: AttachmentField): string => {
+    const fileType = attachment.mimeType?.split('/')[0] || 'unknown';
+    
+    if (fileType === 'image') {
+      return 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWltYWdlIj48cmVjdCB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHg9IjMiIHk9IjMiIHJ4PSIyIiByeT0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBvbHlsaW5lIHBvaW50cz0iMjEgMTUgMTYgMTAgNSAyMSIvPjwvc3ZnPg==';
+    } else if (fileType === 'application' && attachment.mimeType?.includes('pdf')) {
+      return 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmODU5NWIiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1maWxlLXRleHQiPjxwYXRoIGQ9Ik0xNCAyYTIgMiAwIDAgMSAyIDJ2MTZhMiAyIDAgMCAxLTIgMkg2YTIgMiAwIDAgMS0yLTJWNGEyIDIgMCAwIDEgMi0yeiIvPjxwYXRoIGQ9Ik0xNCA2SDZNMTQgMThINk0xNCAxNEg2TTggMTBoNC4ybDEuNC0xLjQiLz48L3N2Zz4=';
+    } else {
+      return 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM1NTU1NTUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1maWxlIj48cGF0aCBkPSJNMTYgMkg4YTIgMiAwIDAgMC0yIDJ2MTZhMiAyIDAgMCAwIDIgMmg4YTIgMiAwIDAgMCAyLTJWNGEyIDIgMCAwIDAtMi0yeiIvPjxyZWN0IHg9IjgiIHk9IjIiIHdpZHRoPSI4IiBoZWlnaHQ9IjQiIHJ4PSIxIiByeT0iMSIvPjwvc3ZnPg==';
+    }
+  };
+
+  // Convert AITable URL to Azure Blob URL
+  const getAzureBlobUrl = (originalUrl: string): string => {
+    if (!originalUrl) return '';
+    
+    try {
+      // If it's already an Azure URL, check if it needs a SAS token
+      if (originalUrl.includes(AZURE_STORAGE_ACCOUNT)) {
+        const hasSasToken = originalUrl.includes('sv=') || 
+                           originalUrl.includes('sig=') || 
+                           originalUrl.includes(AZURE_SAS_TOKEN);
+        
+        if (!hasSasToken && originalUrl.includes(AZURE_CONTAINER)) {
+          return `${originalUrl}${AZURE_SAS_TOKEN}`;
+        }
+        return originalUrl;
+      }
+      
+      // Extract the file name from the original URL
+      // This assumes AITable URLs end with the file name
+      const urlParts = originalUrl.split('/');
+      const fileName = urlParts[urlParts.length - 1];
+      
+      if (!fileName || fileName === '') {
+        console.error('Could not extract filename from URL:', originalUrl);
+        return originalUrl;
+      }
+      
+      // Remove any query parameters from the filename
+      const cleanFileName = fileName.split('?')[0];
+      
+      // Construct Azure URL with SAS token
+      const azureUrl = `${AZURE_BASE_URL}/${cleanFileName}${AZURE_SAS_TOKEN}`;
+      console.log(`Converted URL ${originalUrl} to Azure URL: ${azureUrl}`);
+      
+      return azureUrl;
+    } catch (error) {
+      console.error('Error converting to Azure URL:', error);
+      return originalUrl;
+    }
+  };
+
+  // Get image URL with fallback logic
+  const getSafeImageUrl = (attachment: AttachmentField): string => {
+    const id = attachment.id;
+    
+    // If we already have a blob URL, use it
+    if (blobUrls[id]) {
+      return blobUrls[id];
+    }
+    
+    // If this image has already failed and we've tried fallbacks, use placeholder
+    if (imageLoadFailed[id] && fallbackAttempted[id]) {
+      return getPlaceholderImage(attachment);
+    }
+    
+    if (!attachment.url) {
+      return getPlaceholderImage(attachment);
+    }
+    
+    // Check if the URL already includes the SAS token
+    const hasSasToken = attachment.url.includes(AZURE_SAS_TOKEN) || 
+                        attachment.url.includes('sv=') || 
+                        attachment.url.includes('sig=');
+    
+    // If URL is an Azure Blob URL
+    if (attachment.url.includes(AZURE_STORAGE_ACCOUNT)) {
+      // Add SAS token if needed
+      if (!hasSasToken && attachment.url.includes(AZURE_CONTAINER)) {
+        return `${attachment.url}${AZURE_SAS_TOKEN}`;
+      }
+      return attachment.url;
+    }
+    
+    // If this is first attempt or the image failed but we haven't tried fallbacks yet,
+    // try with Azure URL
+    if (!imageLoadFailed[id] || !fallbackAttempted[id]) {
+      if (imageLoadFailed[id]) {
+        // Mark that we've attempted fallback
+        setFallbackAttempted(prev => ({
+          ...prev,
+          [id]: true
+        }));
+      }
+      
+      // Try Azure URL with SAS token
+      return getAzureBlobUrl(attachment.url);
+    }
+    
+    // Fallback to original URL if all else fails
+    return attachment.url;
+  };
+
   // Handle image selection
   const handleImageSelect = (attachment: AttachmentField) => {
-    console.log('AttachmentsList: Selected image:', attachment);
+    console.log('Selected image:', attachment);
     setSelectedImage(attachment);
     setIsImageLoading(true);
+    
+    // Pre-process the URL for the full-size view
+    if (attachment.url) {
+      // If it's an Azure URL without SAS token, add it
+      if (attachment.url.includes(AZURE_STORAGE_ACCOUNT) && 
+          !attachment.url.includes('sv=') && 
+          !attachment.url.includes('sig=')) {
+        attachment.fullSizeUrl = `${attachment.url}${AZURE_SAS_TOKEN}`;
+      } else if (!attachment.url.includes(AZURE_STORAGE_ACCOUNT)) {
+        // If it's not an Azure URL, convert it
+        attachment.fullSizeUrl = getAzureBlobUrl(attachment.url);
+      } else {
+        // Already has SAS token or is a different URL
+        attachment.fullSizeUrl = attachment.url;
+      }
+    }
   };
 
   // Filter images for gallery view
@@ -87,42 +244,64 @@ const AttachmentsList = ({ attachments, isOpen, onClose }: { attachments?: Attac
             <div className="mb-6">
               <h4 className="text-sm font-medium text-gray-700 mb-3">الصور ({imageAttachments.length})</h4>
               <div className="grid grid-cols-3 gap-3">
-                {imageAttachments.map(attachment => (
-                  <div 
-                    key={attachment.id || `img-${attachment.name}-${Date.now()}`} 
-                    className="aspect-square rounded border border-gray-200 bg-gray-100 overflow-hidden cursor-pointer relative group shadow hover:shadow-md transition-shadow"
-                    onClick={() => handleImageSelect(attachment)}
-                  >
-                    {attachment.url ? (
-                      <img 
-                        src={attachment.thumbnailUrl || attachment.url} 
-                        alt={attachment.name}
-                        className="w-full h-full object-contain"
-                        onLoad={() => console.log('Image thumbnail loaded:', attachment.name)}
-                        onError={(e) => {
-                          // Log error and fallback if thumbnail fails to load
-                          console.error('Error loading thumbnail:', attachment.name, e);
-                          const target = e.target as HTMLImageElement;
-                          target.onerror = null; // Prevent infinite error loop
-                          if (target.src !== attachment.url) {
-                            console.log('Falling back to main URL for:', attachment.name);
-                            target.src = attachment.url;
-                          } else {
-                            console.log('Main URL also failed for:', attachment.name);
-                            target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWltYWdlIj48cmVjdCB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHg9IjMiIHk9IjMiIHJ4PSIyIiByeT0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBvbHlsaW5lIHBvaW50cz0iMjEgMTUgMTYgMTAgNSAyMSIvPjwvc3ZnPg==';
-                          }
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                        <ImageIcon className="w-8 h-8 text-gray-400" />
+                {imageAttachments.map(attachment => {
+                  const imageUrl = getSafeImageUrl(attachment);
+                  
+                  return (
+                    <div 
+                      key={attachment.id || `img-${attachment.name}-${Date.now()}`} 
+                      className="aspect-square rounded border border-gray-200 bg-gray-100 overflow-hidden cursor-pointer relative group shadow hover:shadow-md transition-shadow"
+                      onClick={() => handleImageSelect(attachment)}
+                    >
+                      <div className="w-full h-full flex items-center justify-center">
+                        <img 
+                          src={imageUrl} 
+                          alt={attachment.name}
+                          className="max-w-full max-h-full object-contain"
+                          onLoad={() => {
+                            console.log('Image thumbnail loaded successfully:', attachment.name, 'URL:', imageUrl);
+                            
+                            // If this was using a fallback URL and it loaded successfully,
+                            // store it in blobUrls for future use
+                            if (fallbackAttempted[attachment.id] && !blobUrls[attachment.id]) {
+                              setBlobUrls(prev => ({
+                                ...prev,
+                                [attachment.id]: imageUrl
+                              }));
+                            }
+                            
+                            // Reset the failed state if it was previously marked as failed
+                            if (imageLoadFailed[attachment.id]) {
+                              setImageLoadFailed(prev => ({
+                                ...prev,
+                                [attachment.id]: false
+                              }));
+                            }
+                          }}
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            console.error('Error loading thumbnail:', attachment.name, e);
+                            
+                            // Prevent further error events
+                            target.onerror = null;
+                            
+                            // Mark this image as failed
+                            setImageLoadFailed(prev => ({
+                              ...prev,
+                              [attachment.id]: true
+                            }));
+                            
+                            // Set to placeholder directly to stop errors
+                            target.src = getPlaceholderImage(attachment);
+                          }}
+                        />
                       </div>
-                    )}
-                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 flex items-center justify-center transition-opacity">
-                      <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 flex items-center justify-center transition-opacity">
+                        <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -132,29 +311,25 @@ const AttachmentsList = ({ attachments, isOpen, onClose }: { attachments?: Attac
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-3">المستندات ({documentAttachments.length})</h4>
               <div className="space-y-2">
-                {documentAttachments.map(attachment => (
-                  <a 
-                    key={attachment.id || `doc-${attachment.name}-${Date.now()}`} 
-                    href={attachment.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center p-3 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors"
-                    onClick={(e) => {
-                      console.log('Opening document:', attachment.name, attachment.url);
-                      if (!attachment.url) {
-                        e.preventDefault();
-                        console.error('No URL available for document:', attachment.name);
-                      }
-                    }}
-                  >
-                    {getFileIcon(attachment.mimeType)}
-                    <div className="mr-3 overflow-hidden flex-1">
-                      <div className="text-sm font-medium text-gray-900 truncate">{attachment.name}</div>
-                      <div className="text-xs text-gray-500">{formatFileSize(attachment.size)}</div>
-                    </div>
-                    <ExternalLink className="w-4 h-4 text-gray-400 shrink-0" />
-                  </a>
-                ))}
+                {documentAttachments.map(attachment => {
+                  // For documents, use the direct URL without proxies
+                  return (
+                    <a 
+                      key={attachment.id || `doc-${attachment.name}-${Date.now()}`} 
+                      href={attachment.url}
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center p-3 bg-gray-50 rounded border border-gray-200 hover:bg-gray-100 transition-colors"
+                    >
+                      {getFileIcon(attachment.mimeType)}
+                      <div className="mr-3 overflow-hidden flex-1">
+                        <div className="text-sm font-medium text-gray-900 truncate">{attachment.name}</div>
+                        <div className="text-xs text-gray-500">{formatFileSize(attachment.size)}</div>
+                      </div>
+                      <ExternalLink className="w-4 h-4 text-gray-400 shrink-0" />
+                    </a>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -180,35 +355,38 @@ const AttachmentsList = ({ attachments, isOpen, onClose }: { attachments?: Attac
             </button>
             
             {/* Image container */}
-            <div className="relative flex items-center justify-center">
+            <div className="relative flex items-center justify-center w-full h-full">
               {isImageLoading && (
                 <div className="absolute inset-0 flex items-center justify-center z-10">
                   <div className="w-12 h-12 border-4 border-t-transparent border-white rounded-full animate-spin"></div>
                 </div>
               )}
-              {selectedImage.url ? (
-                <img 
-                  src={selectedImage.url} 
-                  alt={selectedImage.name} 
-                  style={{ maxHeight: '80vh', maxWidth: '90vw', objectFit: 'contain' }}
-                  className="rounded-lg shadow-2xl"
-                  onLoad={() => {
-                    console.log('Full-size image loaded:', selectedImage.name);
-                    setIsImageLoading(false);
-                  }}
-                  onError={(e) => {
-                    console.error('Error loading full-size image:', selectedImage.name);
-                    setIsImageLoading(false);
-                    const target = e.target as HTMLImageElement;
-                    target.onerror = null; // Prevent infinite error loop
-                    target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiIGNsYXNzPSJsdWNpZGUgbHVjaWRlLWltYWdlIj48cmVjdCB3aWR0aD0iMTgiIGhlaWdodD0iMTgiIHg9IjMiIHk9IjMiIHJ4PSIyIiByeT0iMiIvPjxjaXJjbGUgY3g9IjguNSIgY3k9IjguNSIgcj0iMS41Ii8+PHBvbHlsaW5lIHBvaW50cz0iMjEgMTUgMTYgMTAgNSAyMSIvPjwvc3ZnPg==';
-                  }}
-                />
-              ) : (
-                <div className="bg-gray-800 rounded-lg p-8 flex items-center justify-center">
-                  <ImageIcon className="w-16 h-16 text-gray-500" />
-                </div>
-              )}
+              
+              <img 
+                src={selectedImage.fullSizeUrl || selectedImage.url} 
+                alt={selectedImage.name} 
+                style={{ maxHeight: '80vh', maxWidth: '90vw' }}
+                className="rounded-lg shadow-2xl object-contain"
+                onLoad={() => {
+                  console.log('Full-size image loaded successfully:', selectedImage.name);
+                  setIsImageLoading(false);
+                }}
+                onError={(e) => {
+                  console.error('Error loading full-size image:', selectedImage.name);
+                  setIsImageLoading(false);
+                  
+                  const target = e.target as HTMLImageElement;
+                  target.onerror = null; // Prevent infinite error loop
+                  
+                  // Try direct URL as fallback for the full-size view
+                  if (target.src !== selectedImage.url) {
+                    target.src = selectedImage.url;
+                  } else {
+                    // Use placeholder as last resort
+                    target.src = getPlaceholderImage(selectedImage);
+                  }
+                }}
+              />
             </div>
             
             {/* Image info */}
@@ -258,6 +436,9 @@ function App() {
   const [cacheTimestamp, setCacheTimestamp] = useState<Date | null>(null);
   const [isFetchingFreshData, setIsFetchingFreshData] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  // Form submission state
+  const [isFormSubmitting, setIsFormSubmitting] = useState(false);
 
   // Listen for online/offline events
   useEffect(() => {
@@ -460,6 +641,12 @@ function App() {
   const handleUpdateRecord = async (fields: Record['fields']) => {
     if (isReadOnly || !editingRecord?.recordId) return;
     
+    // Prevent editing records from year 1445
+    if (editingRecord.fields.EidYear === '1445') {
+      setError('لا يمكن تعديل سجلات العام 1445');
+      return;
+    }
+    
     try {
       await updateRecord({ recordId: editingRecord.recordId, fields });
       await fetchRecords(true); // Force refresh after updating
@@ -476,6 +663,17 @@ function App() {
 
   const handleDeleteRecord = async (recordId: string) => {
     if (isReadOnly) return;
+    
+    // Find the record to check its year
+    const recordToCheck = records.find(record => record.recordId === recordId);
+    
+    // Prevent deleting records from year 1445
+    if (recordToCheck && recordToCheck.fields.EidYear === '1445') {
+      setError('لا يمكن حذف سجلات العام 1445');
+      setShowDeleteConfirm(false);
+      setRecordToDelete(null);
+      return;
+    }
     
     try {
       await deleteRecord(recordId);
@@ -494,6 +692,15 @@ function App() {
 
   const confirmDelete = (recordId: string) => {
     if (isReadOnly) return;
+    
+    // Find the record to check its year
+    const recordToCheck = records.find(record => record.recordId === recordId);
+    
+    // Prevent deleting records from year 1445
+    if (recordToCheck && recordToCheck.fields.EidYear === '1445') {
+      setError('لا يمكن حذف سجلات العام 1445');
+      return;
+    }
     
     setRecordToDelete(recordId);
     setShowDeleteConfirm(true);
@@ -614,17 +821,107 @@ function App() {
   };
 
   // Function to validate attachments before displaying them
-  const validateAndShowAttachments = (attachments?: AttachmentField[]) => {
-    console.log('Validating attachments:', attachments);
+  const validateAndShowAttachments = (record?: Record) => {
+    console.log('Validating attachments for record:', record);
     
-    if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
-      console.error('No attachments to display');
+    let attachments: AttachmentField[] = [];
+    
+    // Check if we have the Attachment URL field
+    if (record?.fields["Attachment URL"]) {
+      try {
+        // Try to parse the Attachment URL field as JSON
+        const urlString = record.fields["Attachment URL"];
+        
+        // Check if it's already an array or a JSON string
+        let urls: string[] = [];
+        if (typeof urlString === 'string') {
+          if (urlString.startsWith('[') && urlString.endsWith(']')) {
+            // It's a JSON array string
+            urls = JSON.parse(urlString);
+          } else {
+            // It's a single URL
+            urls = [urlString];
+          }
+        } else if (Array.isArray(urlString)) {
+          urls = urlString;
+        }
+        
+        // Create attachment objects from URLs
+        attachments = urls.map((url, index) => {
+          // Try to extract file name from URL
+          const fileName = url.split('/').pop()?.split('?')[0] || `file-${index + 1}`;
+          
+          // Try to determine mime type from file extension
+          let mimeType = 'application/octet-stream';
+          if (fileName.match(/\.(jpg|jpeg|png|gif)$/i)) {
+            mimeType = 'image/' + fileName.split('.').pop()?.toLowerCase();
+          } else if (fileName.match(/\.(pdf)$/i)) {
+            mimeType = 'application/pdf';
+          } else if (fileName.match(/\.(doc|docx)$/i)) {
+            mimeType = 'application/msword';
+          } else if (fileName.match(/\.(xls|xlsx)$/i)) {
+            mimeType = 'application/vnd.ms-excel';
+          }
+          
+          // Extract token from URL or create one based on URL
+          // AITable tokens are typically the path portion of the URL after the domain
+          let token = '';
+          try {
+            // Extract path portion from URL (excluding domain and query params)
+            const urlObj = new URL(url);
+            token = urlObj.pathname.replace(/^\//, ''); // Remove leading slash
+            if (!token) {
+              token = `attachment-token-${index}-${Date.now()}`;
+            }
+          } catch (e) {
+            // If URL parsing fails, create a token based on the URL string
+            token = url.replace(/^https?:\/\/[^\/]+\//, '') || `attachment-token-${index}-${Date.now()}`;
+          }
+          
+          // If it's an Azure URL, add SAS token if missing
+          let fullUrl = url;
+          if (url.includes(AZURE_STORAGE_ACCOUNT) && 
+              !url.includes('sv=') && 
+              !url.includes('sig=')) {
+            fullUrl = `${url}${AZURE_SAS_TOKEN}`;
+          }
+          
+          return {
+            id: `attachment-${index}-${Date.now()}`,
+            name: fileName,
+            url: fullUrl,
+            mimeType: mimeType,
+            size: 0, // We don't know the size from just the URL
+            token: token
+          };
+        });
+        
+        console.log('Parsed attachments from Attachment URL:', attachments);
+      } catch (error) {
+        console.error('Error parsing Attachment URL:', error);
+      }
+    }
+    
+    if (attachments.length === 0) {
+      console.error('No attachments found for record');
       return;
     }
     
+    // Log the structure of each attachment for debugging
+    attachments.forEach((att, index) => {
+      console.log(`Attachment ${index + 1}:`, {
+        id: att.id,
+        name: att.name,
+        url: att.url,
+        thumbnailUrl: att.thumbnailUrl,
+        mimeType: att.mimeType,
+        size: att.size
+      });
+    });
+    
     // Filter out any invalid attachment objects that don't have required properties
     const validAttachments = attachments.filter(att => 
-      att && typeof att === 'object' && att.url && att.name && att.mimeType
+      att && typeof att === 'object' && att.url && att.name
     );
     
     if (validAttachments.length === 0) {
@@ -779,29 +1076,61 @@ function App() {
             </div>
           </div>
 
-          {/* Category Filter */}
+          {/* Category Filter - Tab style */}
           <div>
-            <label htmlFor="category-filter" className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               تصفية حسب الفئة
             </label>
-            <select
-              id="category-filter"
-              value={selectedCategory || ''}
-              onChange={(e) => setSelectedCategory(e.target.value || null)}
-              className="block w-full rounded-md border-gray-300 shadow-sm py-2 px-3 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-            >
-              <option value="">جميع الفئات</option>
-              {categories.map(category => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
+            <div className="relative">
+              <style dangerouslySetInnerHTML={{ 
+                __html: `
+                  .no-scrollbar::-webkit-scrollbar {
+                    display: none;
+                  }
+                  .no-scrollbar {
+                    -ms-overflow-style: none;
+                    scrollbar-width: none;
+                  }
+                `
+              }} />
+              <div className="overflow-x-auto no-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
+                <div className="flex space-x-2 rtl:space-x-reverse py-1 px-0.5">
+                  <button
+                    className={`px-4 py-2 rounded-md whitespace-nowrap text-sm font-medium transition-colors ${
+                      !selectedCategory
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                    onClick={() => setSelectedCategory(null)}
+                  >
+                    الكل
+                  </button>
+                  {categories.map(category => (
+                    <button
+                      key={category}
+                      className={`px-4 py-2 rounded-md whitespace-nowrap text-sm font-medium transition-colors ${
+                        selectedCategory === category
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                      onClick={() => setSelectedCategory(category)}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Gradient fades for scroll indication */}
+              <div className="absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-l from-gray-100 to-transparent pointer-events-none"></div>
+              <div className="absolute top-0 left-0 bottom-0 w-8 bg-gradient-to-r from-gray-100 to-transparent pointer-events-none"></div>
+            </div>
           </div>
           
           {/* Show filter status if any filter is active */}
           {(selectedCategory || searchQuery) && (
             <div className="flex justify-between items-center py-2 px-3 bg-blue-50 rounded-md">
               <span className="text-sm text-blue-700">
-                {filteredRecords.length} عنصر {filteredRecords.length !== records.length && `(من أصل ${records.length})`}
+                {filteredRecords.length.toLocaleString('ar-SA')} عنصر {filteredRecords.length !== records.length && `(من أصل ${records.length.toLocaleString('ar-SA')})`}
               </span>
               <button
                 onClick={() => {
@@ -822,17 +1151,19 @@ function App() {
           <div className="grid grid-cols-2 gap-4">
             {sortedYears.map(year => (
               <div key={year} className="bg-gray-50 rounded-lg p-3">
-                <div className="text-sm text-gray-500">سنة {year}</div>
+                <div className="text-sm text-gray-500">
+                  سنة {isNaN(parseInt(year)) ? year : parseInt(year).toLocaleString('ar-SA')}
+                </div>
                 <div className="text-lg font-semibold text-gray-900 mb-1 flex items-center justify-end">
                   <span className="mx-1">{yearlyStats[year].total.toLocaleString('ar-SA')}</span>
                   <SaudiRiyalSymbol size={16} className="text-gray-700" />
                 </div>
                 <div className="text-xs text-gray-500">
-                  ({yearlyStats[year].count} سجل)
+                  ({yearlyStats[year].count.toLocaleString('ar-SA')} سجل)
                 </div>
                 {year === '1446' && yearlyComparison && (
                   <div className={`text-xs mt-1 text-right ${yearlyComparison.isIncrease ? 'text-red-600' : 'text-green-600'}`}>
-                    {yearlyComparison.isIncrease ? '▲' : '▼'} {Math.abs(yearlyComparison.percentageChange).toFixed(1)}% مقارنة بعام ١٤٤٥
+                    {yearlyComparison.isIncrease ? '▲' : '▼'} {parseFloat(Math.abs(yearlyComparison.percentageChange).toFixed(1)).toLocaleString('ar-SA')}% مقارنة بعام ١٤٤٥
                   </div>
                 )}
               </div>
@@ -863,8 +1194,9 @@ function App() {
         {!isReadOnly && (
           <button
             onClick={() => setIsFormOpen(true)}
-            className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 flex items-center justify-center"
+            className={`fixed bottom-6 right-6 h-14 w-14 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 flex items-center justify-center ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
             aria-label="إضافة سجل"
+            disabled={isFormSubmitting}
           >
             <Plus className="w-6 h-6" />
           </button>
@@ -912,6 +1244,7 @@ function App() {
                 <button 
                   onClick={() => setShowDeleteConfirm(false)}
                   className="text-gray-400 hover:text-gray-600"
+                  disabled={isFormSubmitting}
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -920,15 +1253,22 @@ function App() {
               <div className="flex justify-end space-x-2 rtl:space-x-reverse">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+                  className={`px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={isFormSubmitting}
                 >
                   إلغاء
                 </button>
                 <button
                   onClick={() => recordToDelete && handleDeleteRecord(recordToDelete)}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                  className={`px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={isFormSubmitting}
                 >
-                  حذف
+                  {isFormSubmitting ? (
+                    <span className="flex items-center">
+                      <span className="mr-2 animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                      جارٍ الحذف...
+                    </span>
+                  ) : 'حذف'}
                 </button>
               </div>
             </div>
@@ -960,14 +1300,14 @@ function App() {
                         <span className="text-gray-500">الوحدة:</span>
                         <span className="mr-1 text-gray-900">{latestRecord.fields.Unit || 'غير محدد'}</span>
                       </div>
-                      {latestRecord.fields.Attachment && latestRecord.fields.Attachment.length > 0 && (
+                      {latestRecord.fields["Attachment URL"] && (
                         <button
-                          onClick={() => validateAndShowAttachments(latestRecord.fields.Attachment)}
+                          onClick={() => validateAndShowAttachments(latestRecord)}
                           className="flex items-center text-blue-500 hover:text-blue-700"
                           aria-label="عرض المرفقات"
                         >
                           <Paperclip className="w-4 h-4 ml-1" />
-                          <span className="text-xs">{latestRecord.fields.Attachment.length} مرفقات</span>
+                          <span className="text-xs">مرفقات</span>
                         </button>
                       )}
                     </div>
@@ -991,8 +1331,12 @@ function App() {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {sortedRecords.map((record) => (
                         <tr key={record.recordId} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 text-sm text-gray-900 text-center">{record.fields.EidYear}</td>
-                          <td className="px-3 py-2 text-sm text-gray-900 text-center">{record.fields.Quantity}</td>
+                          <td className="px-3 py-2 text-sm text-gray-900 text-center">
+                            {isNaN(parseInt(record.fields.EidYear)) ? 
+                              record.fields.EidYear : 
+                              parseInt(record.fields.EidYear).toLocaleString('ar-SA')}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-900 text-center">{record.fields.Quantity.toLocaleString('ar-SA')}</td>
                           <td className="px-3 py-2 text-sm text-gray-900">
                             <div className="flex items-center justify-center">
                               <span className="mx-1">{record.fields.UnitPrice.toLocaleString('ar-SA')}</span>
@@ -1006,26 +1350,47 @@ function App() {
                             </div>
                           </td>
                           <td className="px-3 py-2 text-sm text-gray-500 text-center">
-                            {record.fields.Attachment && record.fields.Attachment.length > 0 && (
+                            {record.fields["Attachment URL"] && (
                               <button
-                                onClick={() => validateAndShowAttachments(record.fields.Attachment)}
+                                onClick={() => validateAndShowAttachments(record)}
                                 className="text-blue-500 hover:text-blue-700 p-1"
                                 aria-label="عرض المرفقات"
-                                title={`${record.fields.Attachment?.length} مرفقات`}
+                                title="عرض المرفقات"
                               >
                                 <Paperclip className="w-4 h-4" />
                               </button>
                             )}
                           </td>
                           {!isReadOnly && (
-                            <td className="px-3 py-2 text-sm font-medium text-gray-900">
-                              <button
-                                onClick={() => confirmDelete(record.recordId!)}
-                                className="text-red-600 hover:text-red-900 p-1"
-                                aria-label="حذف"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                            <td className="px-3 py-2 text-sm font-medium text-gray-900 flex space-x-1 rtl:space-x-reverse justify-center">
+                              {record.fields.EidYear !== '1445' && (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      setEditingRecord(record);
+                                      setIsFormOpen(false);
+                                    }}
+                                    className={`text-blue-600 hover:text-blue-900 p-1 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    aria-label="تعديل"
+                                    title="تعديل"
+                                    disabled={isFormSubmitting}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => confirmDelete(record.recordId!)}
+                                    className={`text-red-600 hover:text-red-900 p-1 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    aria-label="حذف"
+                                    title="حذف"
+                                    disabled={isFormSubmitting}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                              {record.fields.EidYear === '1445' && (
+                                <span className="text-xs text-gray-500">للقراءة فقط</span>
+                              )}
                             </td>
                           )}
                         </tr>
