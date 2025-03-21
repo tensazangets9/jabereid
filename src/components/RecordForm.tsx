@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { Record, AttachmentField } from '../types';
 import { SaudiRiyalSymbol } from './SaudiRiyalSymbol';
-import { uploadAttachment, uploadFilesToAzure } from '../api';
-import { Upload, X, FileText, Image as ImageIcon, File as FileIcon, Paperclip, Maximize2 } from 'lucide-react';
+import { uploadAttachment, uploadFilesToAzure, deleteAttachmentFromRecord } from '../api';
+import { Upload, X, FileText, Image as ImageIcon, File as FileIcon, Paperclip, Maximize2, Trash2 } from 'lucide-react';
 
 interface RecordFormProps {
   onSubmit: (data: Record['fields']) => void;
@@ -13,6 +13,7 @@ interface RecordFormProps {
   predefinedItems?: string[];
   predefinedUnits?: string[];
   isSubmitting?: boolean;
+  recordId?: string;
 }
 
 const categories = [
@@ -56,7 +57,8 @@ export function RecordForm({
   isEditing, 
   predefinedItems = [], 
   predefinedUnits = [], 
-  isSubmitting = false 
+  isSubmitting = false, 
+  recordId 
 }: RecordFormProps) {
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting: formSubmitting } } = useForm<Record['fields']>({
     defaultValues: initialData || {
@@ -89,6 +91,67 @@ export function RecordForm({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<AttachmentField | null>(null);
+  const [deletingAttachmentIndex, setDeletingAttachmentIndex] = useState<number | null>(null);
+
+  // Initialize attachments from initialData when editing
+  useEffect(() => {
+    if (isEditing && initialData && initialData["Attachment URL"]) {
+      try {
+        // Parse attachment URLs from the field
+        let urls: string[] = [];
+        const urlData = initialData["Attachment URL"];
+        
+        if (typeof urlData === 'string') {
+          // If it's a JSON string array
+          if (urlData.startsWith('[') && urlData.endsWith(']')) {
+            urls = JSON.parse(urlData);
+          } else {
+            // If it's a single URL
+            urls = [urlData];
+          }
+        } else if (Array.isArray(urlData)) {
+          urls = urlData;
+        }
+        
+        // Set the attachment URLs
+        if (urls.length > 0) {
+          setAttachmentUrls(urls);
+          
+          // Create attachment objects for UI display
+          const attachmentObjects: AttachmentField[] = urls.map((url, index) => {
+            // Try to extract file name from URL
+            const fileName = url.split('/').pop()?.split('?')[0] || `file-${index + 1}`;
+            
+            // Try to determine mime type from file extension
+            let mimeType = 'application/octet-stream';
+            if (fileName.match(/\.(jpg|jpeg|png|gif)$/i)) {
+              mimeType = 'image/' + fileName.split('.').pop()?.toLowerCase();
+            } else if (fileName.match(/\.(pdf)$/i)) {
+              mimeType = 'application/pdf';
+            } else if (fileName.match(/\.(doc|docx)$/i)) {
+              mimeType = 'application/msword';
+            } else if (fileName.match(/\.(xls|xlsx)$/i)) {
+              mimeType = 'application/vnd.ms-excel';
+            }
+            
+            return {
+              id: `existing-attachment-${index}`,
+              name: fileName,
+              url: url,
+              mimeType: mimeType,
+              size: 0, // We don't know the size
+              token: '' // Not needed
+            };
+          });
+          
+          setAttachments(attachmentObjects);
+        }
+      } catch (error) {
+        console.error('Error parsing attachment URLs:', error);
+        setUploadError('حدث خطأ أثناء تحميل المرفقات الحالية');
+      }
+    }
+  }, [isEditing, initialData]);
 
   // Use initial item value when editing
   useEffect(() => {
@@ -222,16 +285,10 @@ export function RecordForm({
       // Convert FileList to array
       const fileArray = Array.from(files);
       
-      // Upload files to Azure Blob Storage
-      const urls = await uploadFilesToAzure(fileArray);
-      console.log('Uploaded files to Azure, URLs:', urls);
-      
-      // Store the URLs for submission
-      setAttachmentUrls(prev => [...prev, ...urls]);
-      
-      // Also create attachment objects for UI display
+      // Create attachment objects and upload files in one step
       const newAttachments = await Promise.all(
-        fileArray.map(async (file, index) => {
+        fileArray.map(async (file) => {
+          // uploadAttachment already uploads to Azure Blob Storage internally
           const data = await uploadAttachment(file);
           return {
             id: data.id,
@@ -239,13 +296,20 @@ export function RecordForm({
             size: data.size,
             mimeType: data.mimeType,
             token: '', // Not needed for Azure
-            url: urls[index], // Use the Azure URL
+            url: data.url, // Use the URL returned from uploadAttachment
             width: data.width,
             height: data.height,
             thumbnailUrl: data.url // Use the same URL for thumbnail
           };
         })
       );
+      
+      // Get just the URLs for the form submission
+      const newUrls = newAttachments.map(attachment => attachment.url);
+      console.log('Uploaded files, URLs:', newUrls);
+      
+      // Store the URLs for submission
+      setAttachmentUrls(prev => [...prev, ...newUrls]);
       
       // Update the attachments state for UI display
       setAttachments(prev => [...prev, ...newAttachments]);
@@ -258,9 +322,37 @@ export function RecordForm({
   };
 
   // Remove attachment from the list
-  const removeAttachment = (index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
-    setAttachmentUrls(prev => prev.filter((_, i) => i !== index));
+  const removeAttachment = async (index: number) => {
+    const attachmentToRemove = attachments[index];
+    
+    // If we're in edit mode and the attachment has a URL, we need to remove it from Azure too
+    if (isEditing && attachmentToRemove.url && recordId) {
+      try {
+        // Show loading state
+        setDeletingAttachmentIndex(index);
+        
+        const success = await deleteAttachmentFromRecord(recordId, attachmentToRemove.url);
+        
+        if (success) {
+          console.log('Successfully deleted attachment from record:', attachmentToRemove.url);
+          // Update local state
+          setAttachments(prev => prev.filter((_, i) => i !== index));
+          setAttachmentUrls(prev => prev.filter((_, i) => i !== index));
+        } else {
+          console.error('Failed to delete attachment from record:', attachmentToRemove.url);
+          alert('Failed to delete attachment. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error deleting attachment:', error);
+        alert(`Error deleting attachment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setDeletingAttachmentIndex(null);
+      }
+    } else {
+      // Just remove from local state for new records or attachments without URLs
+      setAttachments(prev => prev.filter((_, i) => i !== index));
+      setAttachmentUrls(prev => prev.filter((_, i) => i !== index));
+    }
   };
 
   // Get file icon based on mime type
@@ -622,10 +714,10 @@ export function RecordForm({
             {/* Image gallery */}
             {imageAttachments.length > 0 && (
               <div className="grid grid-cols-3 gap-2 mb-3">
-                {imageAttachments.map(attachment => (
+                {imageAttachments.map((attachment, idx) => (
                   <div key={attachment.id || `img-${attachment.name}-${Date.now()}`} className="relative group">
                     <div 
-                      className="aspect-square rounded bg-gray-100 overflow-hidden cursor-pointer relative"
+                      className={`aspect-square rounded bg-gray-100 overflow-hidden cursor-pointer relative ${deletingAttachmentIndex === idx ? 'opacity-50' : ''}`}
                       onClick={() => setSelectedImage(attachment)}
                     >
                       <img 
@@ -636,41 +728,80 @@ export function RecordForm({
                       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 flex items-center justify-center transition-opacity">
                         <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
+                      
+                      {/* Deleting overlay */}
+                      {deletingAttachmentIndex === idx && (
+                        <div className="absolute inset-0 bg-black bg-opacity-30 flex flex-col items-center justify-center">
+                          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mb-2"></div>
+                          <span className="text-white text-xs font-medium">جارٍ الحذف...</span>
+                        </div>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeAttachment(attachments.indexOf(attachment));
-                      }}
-                      className="absolute -top-1 -right-1 bg-white rounded-full shadow-md p-1 text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                    <div className="absolute top-1 right-1 flex space-x-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeAttachment(idx);
+                        }}
+                        disabled={deletingAttachmentIndex !== null}
+                        className={`bg-white rounded-full shadow-md p-1.5 text-red-500 hover:bg-red-500 hover:text-white transition-colors ${deletingAttachmentIndex !== null ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title="حذف المرفق"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
 
             {/* Documents list */}
-            {documentAttachments.map(attachment => (
-              <div key={attachment.id || `doc-${attachment.name}-${Date.now()}`} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                <div className="flex items-center">
-                  {getFileIcon(attachment.mimeType)}
-                  <div className="ml-3">
-                    <div className="text-sm font-medium text-gray-900">{attachment.name}</div>
-                    <div className="text-xs text-gray-500">{formatFileSize(attachment.size)}</div>
+            {documentAttachments.map((attachment, idx) => {
+              const docIndex = imageAttachments.length + idx; // Calculate the actual index in the combined attachments array
+              const isDeleting = deletingAttachmentIndex === docIndex;
+              
+              return (
+                <div key={attachment.id || `doc-${attachment.name}-${Date.now()}`} className={`flex items-center justify-between p-3 bg-gray-50 rounded-md ${isDeleting ? 'opacity-50' : ''}`}>
+                  <div className="flex items-center flex-1 min-w-0">
+                    {getFileIcon(attachment.mimeType)}
+                    <div className="ml-3 mr-3 truncate">
+                      <div className="text-sm font-medium text-gray-900 truncate">{attachment.name}</div>
+                      <div className="text-xs text-gray-500">{formatFileSize(attachment.size)}</div>
+                    </div>
+                  </div>
+                  <div className="flex space-x-2">
+                    {isDeleting ? (
+                      <div className="flex items-center justify-center px-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-500 border-t-transparent mr-2"></div>
+                        <span className="text-xs text-gray-500">جارٍ الحذف...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <a 
+                          href={attachment.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-blue-500 hover:text-blue-700 p-1"
+                          title="فتح المرفق"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(docIndex)}
+                          disabled={deletingAttachmentIndex !== null}
+                          className={`text-red-500 hover:text-red-700 p-1 ${deletingAttachmentIndex !== null ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          title="حذف المرفق"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(attachments.indexOf(attachment))}
-                  className="text-gray-400 hover:text-red-500 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         

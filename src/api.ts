@@ -13,6 +13,12 @@ const CACHE_KEY_FIELDS = 'expenses_app_cache_fields';
 const CACHE_KEY_LAST_FETCH = 'expenses_app_last_fetch';
 const CACHE_EXPIRY_TIME = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
+// Azure Blob Storage configuration
+const AZURE_STORAGE_ACCOUNT = "sultaneng";
+const AZURE_CONTAINER = "sultangengwebsite";
+const AZURE_SAS_TOKEN = "?sv=2023-01-03&st=2025-03-21T11%3A53%3A56Z&se=2025-04-22T11%3A53%3A00Z&sr=c&sp=racwdxltf&sig=O4LWckRIsuxZaCE4ZTJmi7Bl38QocgXKBIv9PltPlGc%3D";
+const AZURE_BASE_URL = `https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_CONTAINER}`;
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -144,12 +150,6 @@ export const getRecords = async (forceRefresh = false) => {
     throw error;
   }
 };
-
-// Azure Blob Storage configuration
-const AZURE_STORAGE_ACCOUNT = "sultaneng";
-const AZURE_CONTAINER = "sultangengwebsite";
-const AZURE_SAS_TOKEN = "?sv=2023-01-03&st=2025-03-21T11%3A53%3A56Z&se=2025-04-22T11%3A53%3A00Z&sr=c&sp=racwdxltf&sig=O4LWckRIsuxZaCE4ZTJmi7Bl38QocgXKBIv9PltPlGc%3D";
-const AZURE_BASE_URL = `https://${AZURE_STORAGE_ACCOUNT}.blob.core.windows.net/${AZURE_CONTAINER}`;
 
 // Upload file to Azure Blob Storage
 export const uploadToAzureBlob = async (file: File): Promise<string> => {
@@ -484,6 +484,67 @@ export const updateRecord = async (record: Record) => {
   }
 };
 
+// Delete attachment from Azure Blob Storage
+export const deleteAttachmentFromAzure = async (url: string): Promise<boolean> => {
+  // Check if we're online
+  if (!isOnline()) {
+    console.error('Cannot delete attachment while offline');
+    return false;
+  }
+
+  try {
+    // Extract the blob name from the URL
+    // Azure URLs are typically in the format: https://<account>.blob.core.windows.net/<container>/<blobname>?<SAS token>
+    const urlWithoutSas = url.split('?')[0]; // Remove SAS token
+    const blobName = urlWithoutSas.substring(urlWithoutSas.lastIndexOf('/') + 1);
+    
+    if (!blobName) {
+      console.error('Could not extract blob name from URL:', url);
+      return false;
+    }
+    
+    console.log(`Attempting to delete blob: ${blobName}`);
+    
+    // Azure Blob Storage REST API endpoint for delete operation
+    const deleteUrl = `${AZURE_BASE_URL}/${blobName}${AZURE_SAS_TOKEN}`;
+    
+    // Send DELETE request to Azure
+    const response = await axios.delete(deleteUrl);
+    
+    console.log('Blob deletion response:', response.status);
+    return response.status >= 200 && response.status < 300;
+  } catch (error) {
+    console.error('Error deleting blob:', error);
+    return false;
+  }
+};
+
+// Delete multiple attachments from Azure Blob Storage
+export const deleteAttachmentsFromAzure = async (urls: string[]): Promise<{success: boolean, deletedCount: number}> => {
+  if (!urls || urls.length === 0) {
+    return { success: true, deletedCount: 0 };
+  }
+  
+  let successCount = 0;
+  let failureCount = 0;
+  
+  // Delete each attachment
+  for (const url of urls) {
+    const success = await deleteAttachmentFromAzure(url);
+    if (success) {
+      successCount++;
+    } else {
+      failureCount++;
+    }
+  }
+  
+  console.log(`Deleted ${successCount}/${urls.length} attachments`);
+  return { 
+    success: failureCount === 0, 
+    deletedCount: successCount 
+  };
+};
+
 export const deleteRecord = async (recordId: string) => {
   // Check if we're online
   if (!isOnline()) {
@@ -491,8 +552,55 @@ export const deleteRecord = async (recordId: string) => {
   }
   
   try {
+    // Try to get the attachments from the record before deleting
+    let attachmentUrls: string[] = [];
+    
+    try {
+      // First approach: Try to get attachments from cache
+      console.log(`Looking for record ${recordId} in cache to get attachments`);
+      const cachedData = getFromCache();
+      
+      if (cachedData && cachedData.records) {
+        const record = cachedData.records.find(r => r.recordId === recordId);
+        
+        if (record && record.fields && record.fields["Attachment URL"]) {
+          const urlData = record.fields["Attachment URL"];
+          
+          if (typeof urlData === 'string') {
+            // If it's a JSON string array
+            if (urlData.startsWith('[') && urlData.endsWith(']')) {
+              try {
+                attachmentUrls = JSON.parse(urlData);
+              } catch (e) {
+                console.error('Error parsing attachment URLs:', e);
+                attachmentUrls = [urlData]; // Fallback to treating it as a single URL
+              }
+            } else {
+              // If it's a single URL
+              attachmentUrls = [urlData];
+            }
+          } else if (Array.isArray(urlData)) {
+            attachmentUrls = urlData;
+          }
+          
+          console.log(`Found ${attachmentUrls.length} attachments from cache:`, attachmentUrls);
+        }
+      }
+    } catch (error) {
+      console.error('Error getting attachments from cache:', error);
+      // Continue with deletion even if we can't get attachments
+    }
+    
     // Call API to delete record
+    console.log(`Deleting record ${recordId}`);
     const response = await api.delete(`/records?recordIds=${recordId}`);
+    
+    // If record deletion was successful, delete the attachments
+    if (response.data.success && attachmentUrls.length > 0) {
+      console.log(`Record deleted successfully, now deleting ${attachmentUrls.length} attachments`);
+      const deleteResult = await deleteAttachmentsFromAzure(attachmentUrls);
+      console.log('Attachment deletion result:', deleteResult);
+    }
     
     // If successful, update the cache with fresh data
     if (response.data.success) {
@@ -540,4 +648,103 @@ const mockAttachmentUpload = async (file: File): Promise<any> => {
     // Read the file as a data URL (base64 encoded)
     reader.readAsDataURL(file);
   });
+};
+
+// Delete a single attachment from a record and update the record
+export const deleteAttachmentFromRecord = async (recordId: string, attachmentUrlToRemove: string): Promise<boolean> => {
+  // Check if we're online
+  if (!isOnline()) {
+    throw new Error('No internet connection. Cannot delete attachment while offline.');
+  }
+  
+  console.log(`Deleting attachment ${attachmentUrlToRemove} from record ${recordId}`);
+  
+  try {
+    // First, get the record from the API or cache
+    let record: Record | undefined;
+    let currentAttachmentUrls: string[] = [];
+    
+    // Try to get the record from cache first
+    const cachedData = getFromCache();
+    if (cachedData && cachedData.records) {
+      record = cachedData.records.find(r => r.recordId === recordId);
+    }
+    
+    if (!record) {
+      console.log('Record not found in cache, cannot delete attachment');
+      return false;
+    }
+    
+    // Parse the current attachment URLs
+    if (record.fields && record.fields["Attachment URL"]) {
+      const urlData = record.fields["Attachment URL"];
+      
+      if (typeof urlData === 'string') {
+        // If it's a JSON string array
+        if (urlData.startsWith('[') && urlData.endsWith(']')) {
+          try {
+            currentAttachmentUrls = JSON.parse(urlData);
+          } catch (e) {
+            console.error('Error parsing attachment URLs:', e);
+            currentAttachmentUrls = [urlData]; // Fallback to treating it as a single URL
+          }
+        } else {
+          // If it's a single URL
+          currentAttachmentUrls = [urlData];
+        }
+      } else if (Array.isArray(urlData)) {
+        currentAttachmentUrls = urlData;
+      }
+    }
+    
+    // If attachment is not in the list, nothing to delete
+    if (!currentAttachmentUrls.includes(attachmentUrlToRemove)) {
+      console.log('Attachment URL not found in record:', attachmentUrlToRemove);
+      return false;
+    }
+    
+    // Delete the attachment from Azure first
+    console.log('Deleting attachment from Azure:', attachmentUrlToRemove);
+    const deleteResult = await deleteAttachmentFromAzure(attachmentUrlToRemove);
+    
+    if (!deleteResult) {
+      console.error('Failed to delete attachment from Azure:', attachmentUrlToRemove);
+      // Continue anyway to update the record, as the file might not exist in Azure
+    }
+    
+    // Update the list of attachments
+    const updatedAttachmentUrls = currentAttachmentUrls.filter(url => url !== attachmentUrlToRemove);
+    
+    // Update the record with the new list
+    const processedRecord = {
+      recordId: recordId,
+      fields: {
+        "Attachment URL": updatedAttachmentUrls.length > 0 ? JSON.stringify(updatedAttachmentUrls) : null
+      }
+    };
+    
+    console.log('Updating record with new attachment list:', processedRecord);
+    
+    // Call API to update record
+    const response = await api.patch<ApiResponse>(`/records?fieldKey=name`, {
+      records: [processedRecord],
+    });
+    
+    console.log('Update response status:', response.status);
+    
+    // If successful, update the cache with fresh data
+    if (response.data.success) {
+      // Fetch fresh data to update cache
+      const freshData = await api.get<ApiResponse>(`/records?fieldKey=name`);
+      if (freshData.data.success) {
+        saveToCache(freshData.data);
+      }
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Error deleting attachment from record:', error);
+    throw error;
+  }
 };

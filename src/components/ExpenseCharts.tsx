@@ -40,7 +40,7 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
     
     // Process all records
     records.forEach(record => {
-      const category = record.fields["Category Copy"] || record.fields.Category || 'غير مصنف';
+      const category = record.fields["Arabic Category"] || 'غير مصنف';
       const year = record.fields.EidYear;
       
       if (year === '1445') {
@@ -69,8 +69,8 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
         const valueB = categories1446[b] || categories1445[b] || 0;
         return valueB - valueA; // Sort descending
       })
-      // Limit to top 7 categories to match the image reference
-      .slice(0, 7);
+      // Limit to top 6 categories to give more space between bars
+      .slice(0, 6);
     
     return {
       labels: sortedCategories,
@@ -80,8 +80,8 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
           data: sortedCategories.map(category => categories1446[category] || 0),
           backgroundColor: '#4F46E5', // Indigo-600 (primary app color)
           borderRadius: 6,
-          barPercentage: 0.7,
-          categoryPercentage: 0.7,
+          barPercentage: 0.6, // Reduce bar width
+          categoryPercentage: 0.65, // Reduce width within category
           borderWidth: 0,
         },
         {
@@ -89,8 +89,8 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
           data: sortedCategories.map(category => categories1445[category] || 0),
           backgroundColor: '#C7D2FE', // Indigo-200 (lighter shade)
           borderRadius: 6,
-          barPercentage: 0.7,
-          categoryPercentage: 0.7,
+          barPercentage: 0.6, // Reduce bar width
+          categoryPercentage: 0.65, // Reduce width within category
           borderWidth: 0,
         }
       ]
@@ -101,6 +101,11 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
   const barOptions = {
     responsive: true,
     maintainAspectRatio: false,
+    layout: {
+      padding: {
+        bottom: 25, // Add padding at the bottom for labels
+      }
+    },
     plugins: {
       legend: {
         position: 'top' as const,
@@ -136,7 +141,35 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
         },
         ticks: {
           font: {
-            size: 11
+            size: 12
+          },
+          // Make labels horizontal instead of diagonal
+          maxRotation: 0,
+          minRotation: 0,
+          // Add more space between labels
+          padding: 10,
+          // Allow wrapping of long labels
+          autoSkip: false,
+          autoSkipPadding: 15,
+          // Enable label wrapping if needed
+          callback: function(value: string | number): string | string[] {
+            // ChartJS context is available through 'this', but we'll use direct value approach
+            // to avoid TypeScript issues with 'this' context
+            if (typeof value === 'number') {
+              const categories = categoryComparisonData.labels;
+              if (categories && categories[value]) {
+                const label = categories[value] as string;
+                // If label is too long, try to split it at a space
+                if (label && label.length > 15) {
+                  const words = label.split(' ');
+                  if (words.length > 1) {
+                    return [words[0], words.slice(1).join(' ')];
+                  }
+                }
+                return label;
+              }
+            }
+            return String(value);
           }
         }
       },
@@ -151,13 +184,11 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
         ticks: {
           padding: 10,
           font: {
-            size: 11
+            size: 14
           },
           callback: function(value: number | string) {
             if (typeof value === 'number') {
-              if (value >= 1000) {
-                return (value / 1000).toLocaleString('ar-SA') + 'ك';
-              }
+              // Format with commas instead of using "ك" suffix
               return value.toLocaleString('ar-SA');
             }
             return value;
@@ -172,7 +203,8 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ records }) => {
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-xl font-semibold text-gray-800">مقارنة المصروفات حسب الفئة</h3>
       </div>
-      <div style={{ height: '400px', width: '100%' }}>
+      {/* Increase height to make chart taller and give more room for horizontal labels */}
+      <div style={{ height: '460px', width: '100%', marginBottom: '25px' }}>
         <Bar data={categoryComparisonData} options={barOptions} />
       </div>
     </div>

@@ -5,6 +5,9 @@ import { getRecords, addRecord, updateRecord, deleteRecord } from './api';
 import { RecordForm } from './components/RecordForm';
 import { SaudiRiyalSymbol } from './components/SaudiRiyalSymbol';
 import ExpenseCharts from './components/ExpenseCharts';
+import { YearlySummarySkeleton, RecordsListSkeleton, FilterControlsSkeleton } from './components/SkeletonLoaders';
+import Skeleton from 'react-loading-skeleton';
+import 'react-loading-skeleton/dist/skeleton.css';
 
 // Extend the AttachmentField type to include fullSizeUrl
 interface AttachmentField extends BaseAttachmentField {
@@ -406,10 +409,17 @@ const AttachmentsList = ({ attachments, isOpen, onClose }: { attachments?: Attac
   );
 };
 
+// Main component
 function App() {
   const [records, setRecords] = useState<Record[]>([]);
   const [fields, setFields] = useState<Field[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Section-specific loading states
+  const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+  const [isRecordsLoading, setIsRecordsLoading] = useState(false);
+  const [isFiltersLoading, setIsFiltersLoading] = useState(false);
+  
   const [error, setError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<Record | null>(null);
@@ -474,7 +484,11 @@ function App() {
 
   const fetchRecords = async (forceRefresh = false) => {
     try {
-      setIsLoading(true);
+      // Set section-specific loading states instead of full page loading
+      setIsSummaryLoading(true);
+      setIsRecordsLoading(true);
+      setIsFiltersLoading(true);
+      
       if (forceRefresh) {
         setIsFetchingFreshData(true);
       }
@@ -575,8 +589,14 @@ function App() {
         setError('فشل في جلب السجلات');
       }
     } finally {
-      setIsLoading(false);
-      setIsFetchingFreshData(false);
+      // Clear all loading states with a slight delay to avoid abrupt transitions
+      setTimeout(() => {
+        setIsLoading(false);
+        setIsSummaryLoading(false);
+        setIsFiltersLoading(false);
+        setIsRecordsLoading(false);
+        setIsFetchingFreshData(false);
+      }, 500);
     }
   };
 
@@ -625,6 +645,8 @@ function App() {
     if (isReadOnly) return;
     
     try {
+      setIsFormSubmitting(true);
+      setIsRecordsLoading(true); // Show records loading only
       await addRecord({ fields });
       await fetchRecords(true); // Force refresh after adding
       setIsFormOpen(false);
@@ -635,6 +657,9 @@ function App() {
       } else {
         setError('فشل في إضافة السجل');
       }
+    } finally {
+      setIsFormSubmitting(false);
+      // We don't need to clear isRecordsLoading here as fetchRecords will do it
     }
   };
 
@@ -648,6 +673,8 @@ function App() {
     }
     
     try {
+      setIsFormSubmitting(true);
+      setIsRecordsLoading(true); // Show records loading only
       await updateRecord({ recordId: editingRecord.recordId, fields });
       await fetchRecords(true); // Force refresh after updating
       setEditingRecord(null);
@@ -658,6 +685,9 @@ function App() {
       } else {
         setError('فشل في تحديث السجل');
       }
+    } finally {
+      setIsFormSubmitting(false);
+      // We don't need to clear isRecordsLoading here as fetchRecords will do it
     }
   };
 
@@ -675,18 +705,56 @@ function App() {
       return;
     }
     
+    // Check if the record has attachments
+    const hasAttachments = recordToCheck?.fields["Attachment URL"] ? true : false;
+    
     try {
+      setIsFormSubmitting(true);
+      setIsRecordsLoading(true); // Show records loading only
+      
+      // If the record has attachments, show a message indicating we're deleting them too
+      if (hasAttachments) {
+        setError('جاري حذف السجل والمرفقات المرتبطة به...');
+      } else {
+        setError('جاري حذف السجل...');
+      }
+      
       await deleteRecord(recordId);
+      
       await fetchRecords(true); // Force refresh after deleting
       setShowDeleteConfirm(false);
       setRecordToDelete(null);
-      setError(null);
+      
+      // Show a success message
+      if (hasAttachments) {
+        setError('تم حذف السجل والمرفقات بنجاح');
+      } else {
+        setError(null); // Clear error message for records without attachments
+      }
+      
+      // Clear the success message after 3 seconds
+      if (hasAttachments) {
+        setTimeout(() => {
+          setError(null);
+        }, 3000);
+      }
     } catch (err) {
       if (err instanceof Error) {
-        setError(err.message || 'فشل في حذف السجل');
+        console.error('Error during record deletion:', err);
+        // Extract a more user-friendly message from the error
+        if (err.message.includes('404')) {
+          setError('فشل في حذف السجل: السجل غير موجود أو تم حذفه بالفعل');
+        } else if (err.message.includes('network') || err.message.includes('internet')) {
+          setError('فشل في حذف السجل: يرجى التحقق من اتصالك بالإنترنت');
+        } else {
+          setError(err.message || 'فشل في حذف السجل');
+        }
       } else {
         setError('فشل في حذف السجل');
       }
+    } finally {
+      setIsFormSubmitting(false);
+      // We don't need to clear isRecordsLoading here as fetchRecords will do it
     }
   };
 
@@ -815,9 +883,18 @@ function App() {
     return Array.from(unitSet).sort();
   }, [records]);
 
+  // Manual refresh function
   const handleManualRefresh = () => {
+    // Prevent multiple fetches
     if (isFetchingFreshData) return;
-    fetchRecords(true); // Force refresh
+    
+    // Set loading states
+    setIsSummaryLoading(true);
+    setIsRecordsLoading(true);
+    setIsFiltersLoading(true);
+    
+    // Force refresh data
+    fetchRecords(true);
   };
 
   // Function to validate attachments before displaying them
@@ -981,7 +1058,8 @@ function App() {
     );
   }
 
-  if (isLoading) {
+  // Only show the full page loading spinner on initial load
+  if (isLoading && !records.length) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-indigo-500"></div>
@@ -1002,13 +1080,23 @@ function App() {
               </div>
             )}
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
-          >
-            <LogOut className="w-4 h-4 ml-2" />
-            تسجيل الخروج
-          </button>
+          <div className="flex space-x-2 rtl:space-x-reverse">
+            <button
+              onClick={handleManualRefresh}
+              className={`flex items-center justify-center w-8 h-8 bg-green-500 text-white rounded-md hover:bg-green-600 ${(isFetchingFreshData || isOffline) ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={isFetchingFreshData || isOffline}
+              title="تحديث"
+            >
+              <RefreshCw className={`w-4 h-4 ${isFetchingFreshData ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center justify-center w-8 h-8 bg-red-500 text-white rounded-md hover:bg-red-600"
+              title="تسجيل الخروج"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Network status indicator */}
@@ -1018,30 +1106,6 @@ function App() {
             <p className="text-sm text-amber-700">
               أنت حالياً في وضع عدم الاتصال. سيتم استخدام البيانات المخزنة مسبقاً.
             </p>
-          </div>
-        )}
-
-        {/* Cache information */}
-        {cacheTimestamp && (
-          <div className="mb-4 bg-gray-50 border border-gray-200 p-3 rounded-md flex justify-between items-center">
-            <div className="text-sm text-gray-600">
-              <div className="flex items-center">
-                {isOffline ? (
-                  <WifiOff className="w-4 h-4 text-gray-500 ml-1" />
-                ) : (
-                  <Wifi className="w-4 h-4 text-green-500 ml-1" />
-                )}
-                <span className="font-medium">آخر تحديث:</span> {cacheTimestamp.toLocaleString('ar-SA')}
-              </div>
-            </div>
-            <button
-              onClick={handleManualRefresh}
-              className={`flex items-center text-sm px-2 py-1 bg-white border border-gray-300 rounded-md hover:bg-gray-100 transition-colors ${(isFetchingFreshData || isOffline) ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={isFetchingFreshData || isOffline}
-            >
-              <RefreshCw className={`w-4 h-4 ml-1 ${isFetchingFreshData ? 'animate-spin' : ''}`} />
-              <span>{isFetchingFreshData ? 'جارٍ التحديث...' : 'تحديث'}</span>
-            </button>
           </div>
         )}
 
@@ -1055,140 +1119,168 @@ function App() {
         )}
 
         {/* Search and Filter Controls */}
-        <div className="mb-4 space-y-3">
-          {/* Search Input */}
-          <div className="relative">
-            <label htmlFor="search-items" className="block text-sm font-medium text-gray-700 mb-1">
-              بحث عن عنصر
-            </label>
+        {isFiltersLoading ? (
+          <FilterControlsSkeleton />
+        ) : (
+          <div className="mb-4 space-y-3">
+            {/* Search Input */}
             <div className="relative">
-              <input
-                id="search-items"
-                type="text"
-                placeholder="ابحث عن عنصر..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="block w-full rounded-md border-gray-300 shadow-sm py-2 pr-10 pl-3 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-              />
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-5 w-5 text-gray-400" />
+              <div className="relative">
+                <input
+                  id="search-items"
+                  type="text"
+                  placeholder="ابحث عن عنصر..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="block w-full rounded-md border-gray-300 shadow-sm py-2 pr-10 pl-3 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+                />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-5 w-5 text-gray-400" />
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Category Filter - Tab style */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              تصفية حسب الفئة
-            </label>
-            <div className="relative">
-              <style dangerouslySetInnerHTML={{ 
-                __html: `
-                  .no-scrollbar::-webkit-scrollbar {
-                    display: none;
-                  }
-                  .no-scrollbar {
-                    -ms-overflow-style: none;
-                    scrollbar-width: none;
-                  }
-                `
-              }} />
-              <div className="overflow-x-auto no-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
-                <div className="flex space-x-2 rtl:space-x-reverse py-1 px-0.5">
-                  <button
-                    className={`px-4 py-2 rounded-md whitespace-nowrap text-sm font-medium transition-colors ${
-                      !selectedCategory
-                        ? 'bg-indigo-600 text-white shadow-sm'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                    onClick={() => setSelectedCategory(null)}
-                  >
-                    الكل
-                  </button>
-                  {categories.map(category => (
+            {/* Category Filter - Tab style */}
+            <div>
+              <div className="relative">
+                <style dangerouslySetInnerHTML={{ 
+                  __html: `
+                    .no-scrollbar::-webkit-scrollbar {
+                      display: none;
+                    }
+                    .no-scrollbar {
+                      -ms-overflow-style: none;
+                      scrollbar-width: none;
+                    }
+                  `
+                }} />
+                <div className="overflow-x-auto no-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <div className="flex space-x-2 rtl:space-x-reverse py-1 px-0.5">
                     <button
-                      key={category}
                       className={`px-4 py-2 rounded-md whitespace-nowrap text-sm font-medium transition-colors ${
-                        selectedCategory === category
+                        !selectedCategory
                           ? 'bg-indigo-600 text-white shadow-sm'
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
-                      onClick={() => setSelectedCategory(category)}
+                      onClick={() => setSelectedCategory(null)}
                     >
-                      {category}
+                      الكل
                     </button>
-                  ))}
+                    {categories.map(category => (
+                      <button
+                        key={category}
+                        className={`px-4 py-2 rounded-md whitespace-nowrap text-sm font-medium transition-colors ${
+                          selectedCategory === category
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                        onClick={() => setSelectedCategory(category)}
+                      >
+                        {category}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+                {/* Gradient fades for scroll indication */}
+                <div className="absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-l from-gray-100 to-transparent pointer-events-none"></div>
+                <div className="absolute top-0 left-0 bottom-0 w-8 bg-gradient-to-r from-gray-100 to-transparent pointer-events-none"></div>
               </div>
-              {/* Gradient fades for scroll indication */}
-              <div className="absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-l from-gray-100 to-transparent pointer-events-none"></div>
-              <div className="absolute top-0 left-0 bottom-0 w-8 bg-gradient-to-r from-gray-100 to-transparent pointer-events-none"></div>
             </div>
+            
+            {/* Show filter status if any filter is active */}
+            {(selectedCategory || searchQuery) && (
+              <div className="flex justify-between items-center py-2 px-3 bg-blue-50 rounded-md">
+                <span className="text-sm text-blue-700">
+                  {filteredRecords.length.toLocaleString('ar-SA')} عنصر {filteredRecords.length !== records.length && `(من أصل ${records.length.toLocaleString('ar-SA')})`}
+                </span>
+                <button
+                  onClick={() => {
+                    setSelectedCategory(null);
+                    setSearchQuery('');
+                  }}
+                  className="text-xs text-blue-700 hover:text-blue-900 underline"
+                >
+                  مسح التصفية
+                </button>
+              </div>
+            )}
           </div>
-          
-          {/* Show filter status if any filter is active */}
-          {(selectedCategory || searchQuery) && (
-            <div className="flex justify-between items-center py-2 px-3 bg-blue-50 rounded-md">
-              <span className="text-sm text-blue-700">
-                {filteredRecords.length.toLocaleString('ar-SA')} عنصر {filteredRecords.length !== records.length && `(من أصل ${records.length.toLocaleString('ar-SA')})`}
-              </span>
-              <button
-                onClick={() => {
-                  setSelectedCategory(null);
-                  setSearchQuery('');
-                }}
-                className="text-xs text-blue-700 hover:text-blue-900 underline"
-              >
-                مسح التصفية
-              </button>
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Yearly Totals */}
-        <div className="mb-6 bg-white rounded-lg shadow-md p-4">
-          <h2 className="text-lg font-semibold mb-3 text-gray-900">إجمالي المصروفات حسب السنة</h2>
-          <div className="grid grid-cols-2 gap-4">
-            {sortedYears.map(year => (
-              <div key={year} className="bg-gray-50 rounded-lg p-3">
-                <div className="text-sm text-gray-500">
-                  سنة {isNaN(parseInt(year)) ? year : parseInt(year).toLocaleString('ar-SA')}
-                </div>
-                <div className="text-lg font-semibold text-gray-900 mb-1 flex items-center justify-end">
-                  <span className="mx-1">{yearlyStats[year].total.toLocaleString('ar-SA')}</span>
-                  <SaudiRiyalSymbol size={16} className="text-gray-700" />
-                </div>
-                <div className="text-xs text-gray-500">
-                  ({yearlyStats[year].count.toLocaleString('ar-SA')} سجل)
-                </div>
-                {year === '1446' && yearlyComparison && (
-                  <div className={`text-xs mt-1 text-right ${yearlyComparison.isIncrease ? 'text-red-600' : 'text-green-600'}`}>
-                    {yearlyComparison.isIncrease ? '▲' : '▼'} {parseFloat(Math.abs(yearlyComparison.percentageChange).toFixed(1)).toLocaleString('ar-SA')}% مقارنة بعام ١٤٤٥
+        {isSummaryLoading ? (
+          <YearlySummarySkeleton />
+        ) : (
+          <div className="mb-6 bg-white rounded-lg shadow-md p-4">
+            <h2 className="text-lg font-semibold mb-3 text-gray-900">إجمالي المصروفات حسب السنة</h2>
+            <div className="grid grid-cols-2 gap-4">
+              {sortedYears.map(year => (
+                <div key={year} className="bg-gray-50 rounded-lg p-3">
+                  <div className="text-sm text-gray-500">
+                    سنة {isNaN(parseInt(year)) ? year : parseInt(year).toLocaleString('ar-SA')}
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Toggle charts button */}
-          <button
-            onClick={() => setShowCharts(!showCharts)}
-            className="mt-4 flex items-center justify-center w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors"
-          >
-            <BarChart className="w-4 h-4 ml-2" />
-            <span>{showCharts ? 'إخفاء مقارنة الفئات' : 'عرض مقارنة الفئات بين ١٤٤٥ و١٤٤٦'}</span>
-          </button>
-
-          {/* Charts section */}
-          {showCharts && (
-            <div className="mt-4">
-              <ExpenseCharts 
-                records={records}
-                yearlyStats={yearlyStats}
-              />
+                  <div className="text-lg font-semibold text-gray-900 mb-1 flex items-center justify-end">
+                    <span className="mx-1">{yearlyStats[year].total.toLocaleString('ar-SA')}</span>
+                    <SaudiRiyalSymbol size={16} className="text-gray-700" />
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    ({yearlyStats[year].count.toLocaleString('ar-SA')} سجل)
+                  </div>
+                  {year === '1446' && (
+                    <>
+                      {/* Budget progress bar */}
+                      <div className="mt-2">
+                        <div className="flex justify-between items-center text-xs mb-1">
+                          <span className="text-gray-600">الميزانية: 17,970.60 ريال</span>
+                          <span className={`font-medium ${yearlyStats[year].total > 17970.60 ? 'text-red-600' : 'text-green-600'}`}>
+                            {Math.min(100, Math.round((yearlyStats[year].total / 17970.60) * 100))}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                          <div 
+                            className={`h-2.5 rounded-full ${yearlyStats[year].total > 17970.60 ? 'bg-red-500' : 'bg-green-500'}`}
+                            style={{ width: `${Math.min(100, (yearlyStats[year].total / 17970.60) * 100)}%` }}
+                          ></div>
+                        </div>
+                        <div className="text-xs mt-1 text-right">
+                          {yearlyStats[year].total > 17970.60 ? (
+                            <span className="text-red-600">تجاوز الميزانية بمقدار {(yearlyStats[year].total - 17970.60).toLocaleString('ar-SA')} ريال</span>
+                          ) : (
+                            <span className="text-green-600">متبقي {(17970.60 - yearlyStats[year].total).toLocaleString('ar-SA')} ريال</span>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {year === '1446' && yearlyComparison && (
+                    <div className={`text-xs mt-1 text-right ${yearlyComparison.isIncrease ? 'text-red-600' : 'text-green-600'}`}>
+                      {yearlyComparison.isIncrease ? '▲' : '▼'} {parseFloat(Math.abs(yearlyComparison.percentageChange).toFixed(1)).toLocaleString('ar-SA')}% مقارنة بعام ١٤٤٥
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
+
+            {/* Toggle charts button */}
+            <button
+              onClick={() => setShowCharts(!showCharts)}
+              className="mt-4 flex items-center justify-center w-full py-2 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors"
+            >
+              <BarChart className="w-4 h-4 ml-2" />
+              <span>{showCharts ? 'إخفاء مقارنة الفئات' : 'عرض مقارنة الفئات بين ١٤٤٥ و١٤٤٦'}</span>
+            </button>
+
+            {/* Charts section */}
+            {showCharts && (
+              <div className="mt-4">
+                <ExpenseCharts 
+                  records={records}
+                  yearlyStats={yearlyStats}
+                />
+              </div>
+            )}
+          </div>
+        )}
         
         {/* Floating Add Button - only show if not in read-only mode */}
         {!isReadOnly && (
@@ -1231,6 +1323,8 @@ function App() {
               isEditing={!!editingRecord}
               predefinedItems={uniqueItems}
               predefinedUnits={uniqueUnits}
+              isSubmitting={isFormSubmitting}
+              recordId={editingRecord?.recordId}
             />
           </div>
         )}
@@ -1249,7 +1343,16 @@ function App() {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-gray-700 mb-6">هل أنت متأكد من حذف هذا السجل؟ لا يمكن التراجع عن هذه العملية.</p>
+              <p className="text-gray-700 mb-3">هل أنت متأكد من حذف هذا السجل؟ لا يمكن التراجع عن هذه العملية.</p>
+              
+              {recordToDelete && records.find(r => r.recordId === recordToDelete)?.fields["Attachment URL"] && (
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-3 mb-4">
+                  <p className="text-amber-700 text-sm">
+                    <strong>تنبيه:</strong> سيتم أيضًا حذف جميع المرفقات المرتبطة بهذا السجل.
+                  </p>
+                </div>
+              )}
+              
               <div className="flex justify-end space-x-2 rtl:space-x-reverse">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
@@ -1275,133 +1378,139 @@ function App() {
           </div>
         )}
 
-        <div className="space-y-4">
-          {sortedItems.map(([item, records]) => {
-            const sortedRecords = [...records].sort((a, b) => 
-              parseInt(b.fields.EidYear) - parseInt(a.fields.EidYear)
-            );
-            const latestRecord = sortedRecords[0];
+        {/* Records List */}
+        {isRecordsLoading ? (
+          <RecordsListSkeleton />
+        ) : (
+          <div className="space-y-4">
+            {sortedItems.map(([item, records]) => {
+              const sortedRecords = [...records].sort((a, b) => 
+                parseInt(b.fields.EidYear) - parseInt(a.fields.EidYear)
+              );
+              const latestRecord = sortedRecords[0];
 
-            return (
-              <div key={item} className="bg-white rounded-lg shadow-md overflow-hidden">
-                <div className="p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">{item}</h3>
-                      <p className="text-sm text-gray-500">
-                        {latestRecord.fields["Arabic Category"] || latestRecord.fields.Category || 'غير مصنف'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-2 text-sm mb-3">
-                    <div className="flex items-center justify-between">
+              return (
+                <div key={item} className="bg-white rounded-lg shadow-md overflow-hidden">
+                  <div className="p-4">
+                    <div className="flex justify-between items-start mb-3">
                       <div>
-                        <span className="text-gray-500">الوحدة:</span>
-                        <span className="mr-1 text-gray-900">{latestRecord.fields.Unit || 'غير محدد'}</span>
+                        <h3 className="text-lg font-semibold text-gray-900">{item}</h3>
+                        <p className="text-sm text-gray-500">
+                          {latestRecord.fields["Arabic Category"] || latestRecord.fields.Category || 'غير مصنف'}
+                        </p>
                       </div>
-                      {latestRecord.fields["Attachment URL"] && (
-                        <button
-                          onClick={() => validateAndShowAttachments(latestRecord)}
-                          className="flex items-center text-blue-500 hover:text-blue-700"
-                          aria-label="عرض المرفقات"
-                        >
-                          <Paperclip className="w-4 h-4 ml-1" />
-                          <span className="text-xs">مرفقات</span>
-                        </button>
-                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 text-sm mb-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-gray-500">الوحدة:</span>
+                          <span className="mr-1 text-gray-900">{latestRecord.fields.Unit || 'غير محدد'}</span>
+                        </div>
+                        {latestRecord.fields["Attachment URL"] && (
+                          <button
+                            onClick={() => validateAndShowAttachments(latestRecord)}
+                            className="flex items-center text-blue-500 hover:text-blue-700"
+                            aria-label="عرض المرفقات"
+                            title="عرض المرفقات"
+                          >
+                            <Paperclip className="w-4 h-4 ml-1" />
+                            <span className="text-xs">مرفقات</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="border-t border-gray-200 overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">السنة</th>
-                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">الكمية</th>
-                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">سعر الوحدة</th>
-                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">التكلفة</th>
-                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">المرفقات</th>
-                        {!isReadOnly && (
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">الإجراءات</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {sortedRecords.map((record) => (
-                        <tr key={record.recordId} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 text-sm text-gray-900 text-center">
-                            {isNaN(parseInt(record.fields.EidYear)) ? 
-                              record.fields.EidYear : 
-                              parseInt(record.fields.EidYear).toLocaleString('ar-SA')}
-                          </td>
-                          <td className="px-3 py-2 text-sm text-gray-900 text-center">{record.fields.Quantity.toLocaleString('ar-SA')}</td>
-                          <td className="px-3 py-2 text-sm text-gray-900">
-                            <div className="flex items-center justify-center">
-                              <span className="mx-1">{record.fields.UnitPrice.toLocaleString('ar-SA')}</span>
-                              <SaudiRiyalSymbol size={14} className="text-gray-700" />
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-sm font-medium text-gray-900">
-                            <div className="flex items-center justify-center">
-                              <span className="mx-1">{record.fields.Cost.toLocaleString('ar-SA')}</span>
-                              <SaudiRiyalSymbol size={14} className="text-gray-700" />
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-sm text-gray-500 text-center">
-                            {record.fields["Attachment URL"] && (
-                              <button
-                                onClick={() => validateAndShowAttachments(record)}
-                                className="text-blue-500 hover:text-blue-700 p-1"
-                                aria-label="عرض المرفقات"
-                                title="عرض المرفقات"
-                              >
-                                <Paperclip className="w-4 h-4" />
-                              </button>
-                            )}
-                          </td>
+                  <div className="border-t border-gray-200 overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">السنة</th>
+                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">الكمية</th>
+                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">سعر الوحدة</th>
+                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">التكلفة</th>
+                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">المرفقات</th>
                           {!isReadOnly && (
-                            <td className="px-3 py-2 text-sm font-medium text-gray-900 flex space-x-1 rtl:space-x-reverse justify-center">
-                              {record.fields.EidYear !== '1445' && (
-                                <>
-                                  <button
-                                    onClick={() => {
-                                      setEditingRecord(record);
-                                      setIsFormOpen(false);
-                                    }}
-                                    className={`text-blue-600 hover:text-blue-900 p-1 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                    aria-label="تعديل"
-                                    title="تعديل"
-                                    disabled={isFormSubmitting}
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                  </button>
-                                  <button
-                                    onClick={() => confirmDelete(record.recordId!)}
-                                    className={`text-red-600 hover:text-red-900 p-1 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                    aria-label="حذف"
-                                    title="حذف"
-                                    disabled={isFormSubmitting}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </>
-                              )}
-                              {record.fields.EidYear === '1445' && (
-                                <span className="text-xs text-gray-500">للقراءة فقط</span>
-                              )}
-                            </td>
+                            <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">الإجراءات</th>
                           )}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {sortedRecords.map((record) => (
+                          <tr key={record.recordId} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 text-sm text-gray-900 text-center">
+                              {isNaN(parseInt(record.fields.EidYear)) ? 
+                                record.fields.EidYear : 
+                                parseInt(record.fields.EidYear).toLocaleString('ar-SA')}
+                            </td>
+                            <td className="px-3 py-2 text-sm text-gray-900 text-center">{record.fields.Quantity.toLocaleString('ar-SA')}</td>
+                            <td className="px-3 py-2 text-sm text-gray-900">
+                              <div className="flex items-center justify-center">
+                                <span className="mx-1">{record.fields.UnitPrice.toLocaleString('ar-SA')}</span>
+                                <SaudiRiyalSymbol size={14} className="text-gray-700" />
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-sm font-medium text-gray-900">
+                              <div className="flex items-center justify-center">
+                                <span className="mx-1">{record.fields.Cost.toLocaleString('ar-SA')}</span>
+                                <SaudiRiyalSymbol size={14} className="text-gray-700" />
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-sm text-gray-500 text-center">
+                              {record.fields["Attachment URL"] && (
+                                <button
+                                  onClick={() => validateAndShowAttachments(record)}
+                                  className="text-blue-500 hover:text-blue-700 p-1"
+                                  aria-label="عرض المرفقات"
+                                  title="عرض المرفقات"
+                                >
+                                  <Paperclip className="w-4 h-4" />
+                                </button>
+                              )}
+                            </td>
+                            {!isReadOnly && (
+                              <td className="px-3 py-2 text-sm font-medium text-gray-900 flex space-x-1 rtl:space-x-reverse justify-center">
+                                {record.fields.EidYear !== '1445' && (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setEditingRecord(record);
+                                        setIsFormOpen(false);
+                                      }}
+                                      className={`text-blue-600 hover:text-blue-900 p-1 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                      aria-label="تعديل"
+                                      title="تعديل"
+                                      disabled={isFormSubmitting}
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => confirmDelete(record.recordId!)}
+                                      className={`text-red-600 hover:text-red-900 p-1 ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                      aria-label="حذف"
+                                      title="حذف"
+                                      disabled={isFormSubmitting}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
+                                {record.fields.EidYear === '1445' && (
+                                  <span className="text-xs text-gray-500">للقراءة فقط</span>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Attachments Dialog */}
