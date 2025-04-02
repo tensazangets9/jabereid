@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@rollup/rollup-win32-x64-msvc": "^4.39.0",
     "@tanstack/react-table": "^8.13.2",
     "axios": "^1.6.7",
     "chart.js": "^4.4.8",
@@ -20,6 +19,10 @@
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.51.0",
     "react-loading-skeleton": "^3.5.0"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.39.0",
+    "@rollup/rollup-linux-x64-gnu": "^4.39.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
