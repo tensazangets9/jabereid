@@ -14,6 +14,7 @@ export interface Record {
     "Last edited time"?: string;
     Attachment?: AttachmentField[];
     "Attachment URL"?: string;
+    Paid?: boolean;
     [key: string]: any; // Allow for additional fields that might come from the API
   };
 }

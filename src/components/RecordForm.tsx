@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { Record, AttachmentField } from '../types';
 import { SaudiRiyalSymbol } from './SaudiRiyalSymbol';
 import { uploadAttachment, uploadFilesToAzure, deleteAttachmentFromRecord } from '../api';
-import { Upload, X, FileText, Image as ImageIcon, File as FileIcon, Paperclip, Maximize2, Trash2 } from 'lucide-react';
+import { Upload, X, FileText, Image as ImageIcon, File as FileIcon, Paperclip, Maximize2, Trash2, Check } from 'lucide-react';
 
 interface RecordFormProps {
   onSubmit: (data: Record['fields']) => void;
@@ -67,6 +67,7 @@ export function RecordForm({
       UnitPrice: 0,
       Cost: 0,
       Unit: 'حبة',
+      Paid: false,
     },
   });
   
@@ -270,7 +271,13 @@ export function RecordForm({
     console.log('Adding attachments to form data for submission:', attachments);
     data.Attachment = attachments;
     
-    const cost = data.Quantity * data.UnitPrice;
+    // Calculate cost with proper precision
+    const quantity = typeof data.Quantity === 'number' ? data.Quantity : parseFloat(data.Quantity as any) || 0;
+    const unitPrice = typeof data.UnitPrice === 'number' ? data.UnitPrice : parseFloat(data.UnitPrice as any) || 0;
+    
+    // Use precise multiplication and round to 2 decimal places
+    const cost = parseFloat((quantity * unitPrice).toFixed(2));
+    
     return { ...data, Cost: cost };
   };
 
@@ -428,6 +435,21 @@ export function RecordForm({
               </option>
             ))}
           </select>
+        </div>
+        
+        <div className="mb-4">
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              id="payment-status"
+              {...register('Paid')}
+              className="h-5 w-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+            />
+            <label htmlFor="payment-status" className="mr-2 block text-sm font-medium text-gray-700">
+              تم الدفع
+            </label>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">حدد هذا الخيار إذا تم دفع قيمة هذا العنصر بالفعل</p>
         </div>
         
         <div className="mb-4 relative item-dropdown-container">
@@ -623,7 +645,17 @@ export function RecordForm({
             <label className="block text-sm font-medium text-gray-700 mb-2">الكمية</label>
             <input
               type="number"
-              {...register('Quantity', { valueAsNumber: true })}
+              step="0.001"
+              {...register('Quantity', { 
+                valueAsNumber: true,
+                setValueAs: (value) => {
+                  // Ensure decimal values are properly processed
+                  if (typeof value === 'string') {
+                    return parseFloat(value) || 0;
+                  }
+                  return value || 0;
+                }
+              })}
               className="block w-full rounded-md border-gray-300 shadow-sm py-2.5 px-3 focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 no-spinners"
             />
           </div>
@@ -646,8 +678,17 @@ export function RecordForm({
               }} />
               <input
                 type="number"
-                step="0.01"
-                {...register('UnitPrice', { valueAsNumber: true })}
+                step="0.001"
+                {...register('UnitPrice', { 
+                  valueAsNumber: true,
+                  setValueAs: (value) => {
+                    // Ensure decimal values are properly processed
+                    if (typeof value === 'string') {
+                      return parseFloat(value) || 0;
+                    }
+                    return value || 0;
+                  }
+                })}
                 className="w-full text-right py-2.5 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-200 focus:border-indigo-300 no-spinners"
                 style={{ paddingLeft: "2rem" }}
               />
@@ -662,8 +703,8 @@ export function RecordForm({
           <label className="block text-sm font-medium text-gray-700 mb-2">التكلفة الإجمالية</label>
           <div className="relative">
             <input
-              type="number"
-              value={quantity * unitPrice}
+              type="text"
+              value={(quantity * unitPrice).toFixed(2)}
               disabled
               className="w-full text-right py-2.5 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:border-indigo-300 bg-gray-50 text-lg font-semibold"
               style={{ paddingLeft: "2rem" }}
@@ -865,7 +906,7 @@ export function RecordForm({
               <span>جاري الحفظ...</span>
             </div>
           ) : (
-            <>{isEditing ? 'تحديث' : 'إضافة'} السجل</>
+            <>{isEditing ? 'تحديث' : 'إضافة'} البند</>
           )}
         </button>
       </div>

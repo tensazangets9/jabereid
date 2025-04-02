@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, PhoneCall, Lock, Eye, LogOut, User, Search, BarChart, RefreshCw, Wifi, WifiOff, Paperclip, ExternalLink, Image as ImageIcon, FileText, File as FileIcon, Maximize2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, ChevronDown, ChevronUp, X, PhoneCall, Lock, Eye, LogOut, User, Search, BarChart, RefreshCw, Wifi, WifiOff, Paperclip, ExternalLink, Image as ImageIcon, FileText, File as FileIcon, Maximize2, Check, DollarSign } from 'lucide-react';
 import { Record, Field, AttachmentField as BaseAttachmentField } from './types';
 import { getRecords, addRecord, updateRecord, deleteRecord } from './api';
 import { RecordForm } from './components/RecordForm';
@@ -450,6 +450,12 @@ function App() {
   // Form submission state
   const [isFormSubmitting, setIsFormSubmitting] = useState(false);
 
+  // Add a state to track which records are currently being updated
+  const [updatingPaymentRecords, setUpdatingPaymentRecords] = useState<{[key: string]: boolean}>({});
+
+  // Add state to track which records were recently updated
+  const [recentlyUpdatedRecords, setRecentlyUpdatedRecords] = useState<{[key: string]: boolean}>({});
+
   // Listen for online/offline events
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -584,9 +590,9 @@ function App() {
       setError(null); // Clear any previous errors
     } catch (err) {
       if (err instanceof Error) {
-        setError(err.message || 'فشل في جلب السجلات');
+        setError(err.message || 'فشل في جلب البنود');
       } else {
-        setError('فشل في جلب السجلات');
+        setError('فشل في جلب البنود');
       }
     } finally {
       // Clear all loading states with a slight delay to avoid abrupt transitions
@@ -653,9 +659,9 @@ function App() {
       setError(null);
     } catch (err) {
       if (err instanceof Error) {
-        setError(err.message || 'فشل في إضافة السجل');
+        setError(err.message || 'فشل في إضافة البند');
       } else {
-        setError('فشل في إضافة السجل');
+        setError('فشل في إضافة البند');
       }
     } finally {
       setIsFormSubmitting(false);
@@ -668,7 +674,7 @@ function App() {
     
     // Prevent editing records from year 1445
     if (editingRecord.fields.EidYear === '1445') {
-      setError('لا يمكن تعديل سجلات العام 1445');
+      setError('لا يمكن تعديل بنود العام 1445');
       return;
     }
     
@@ -681,9 +687,9 @@ function App() {
       setError(null);
     } catch (err) {
       if (err instanceof Error) {
-        setError(err.message || 'فشل في تحديث السجل');
+        setError(err.message || 'فشل في تحديث البند');
       } else {
-        setError('فشل في تحديث السجل');
+        setError('فشل في تحديث البند');
       }
     } finally {
       setIsFormSubmitting(false);
@@ -699,7 +705,7 @@ function App() {
     
     // Prevent deleting records from year 1445
     if (recordToCheck && recordToCheck.fields.EidYear === '1445') {
-      setError('لا يمكن حذف سجلات العام 1445');
+      setError('لا يمكن حذف بنود العام 1445');
       setShowDeleteConfirm(false);
       setRecordToDelete(null);
       return;
@@ -714,9 +720,9 @@ function App() {
       
       // If the record has attachments, show a message indicating we're deleting them too
       if (hasAttachments) {
-        setError('جاري حذف السجل والمرفقات المرتبطة به...');
+        setError('جاري حذف البند والمرفقات المرتبطة به...');
       } else {
-        setError('جاري حذف السجل...');
+        setError('جاري حذف البند...');
       }
       
       await deleteRecord(recordId);
@@ -727,7 +733,7 @@ function App() {
       
       // Show a success message
       if (hasAttachments) {
-        setError('تم حذف السجل والمرفقات بنجاح');
+        setError('تم حذف البند والمرفقات بنجاح');
       } else {
         setError(null); // Clear error message for records without attachments
       }
@@ -743,14 +749,14 @@ function App() {
         console.error('Error during record deletion:', err);
         // Extract a more user-friendly message from the error
         if (err.message.includes('404')) {
-          setError('فشل في حذف السجل: السجل غير موجود أو تم حذفه بالفعل');
+          setError('فشل في حذف البند: البند غير موجود أو تم حذفه بالفعل');
         } else if (err.message.includes('network') || err.message.includes('internet')) {
-          setError('فشل في حذف السجل: يرجى التحقق من اتصالك بالإنترنت');
+          setError('فشل في حذف البند: يرجى التحقق من اتصالك بالإنترنت');
         } else {
-          setError(err.message || 'فشل في حذف السجل');
+          setError(err.message || 'فشل في حذف البند');
         }
       } else {
-        setError('فشل في حذف السجل');
+        setError('فشل في حذف البند');
       }
     } finally {
       setIsFormSubmitting(false);
@@ -766,7 +772,7 @@ function App() {
     
     // Prevent deleting records from year 1445
     if (recordToCheck && recordToCheck.fields.EidYear === '1445') {
-      setError('لا يمكن حذف سجلات العام 1445');
+      setError('لا يمكن حذف بنود العام 1445');
       return;
     }
     
@@ -784,6 +790,35 @@ function App() {
     acc[year].count += 1;
     return acc;
   }, {} as { [key: string]: { total: number, count: number } });
+
+  // Calculate payment statistics for year 1446
+  const calculatePaymentStats = (year: string) => {
+    const yearRecords = records.filter(record => record.fields.EidYear === year);
+    
+    // Total planned cost (all records)
+    const totalPlanned = yearRecords.reduce((sum, record) => sum + (record.fields.Cost || 0), 0);
+    
+    // Total actually paid (records with Paid = true)
+    const totalPaid = yearRecords
+      .filter(record => record.fields.Paid === true)
+      .reduce((sum, record) => sum + (record.fields.Cost || 0), 0);
+    
+    // Calculate percentages relative to budget
+    const BUDGET = 20520.60;
+    const plannedPercentage = Math.min(100, (totalPlanned / BUDGET) * 100);
+    const paidPercentage = Math.min(100, (totalPaid / BUDGET) * 100);
+    
+    return {
+      totalPlanned,
+      totalPaid,
+      plannedPercentage,
+      paidPercentage,
+      budget: BUDGET
+    };
+  };
+
+  // Get payment stats for 1446
+  const paymentStats1446 = calculatePaymentStats('1446');
 
   // Calculate percentage change between 1446 and 1445
   const calculateYearlyComparison = () => {
@@ -1011,6 +1046,85 @@ function App() {
     setIsAttachmentsDialogOpen(true);
   };
 
+  // Function to toggle payment status
+  const handleTogglePaymentStatus = async (record: Record) => {
+    if (isReadOnly) return;
+
+    // Prevent editing records from year 1445
+    if (record.fields.EidYear === '1445') {
+      setError('لا يمكن تعديل بنود العام 1445');
+      return;
+    }
+
+    try {
+      // Set this record as updating
+      setUpdatingPaymentRecords(prev => ({ ...prev, [record.recordId!]: true }));
+      
+      // Optimistically update the UI first
+      const newPaidStatus = !record.fields.Paid;
+      
+      // Create a new records array with the updated status
+      const updatedRecords = records.map(r => {
+        if (r.recordId === record.recordId) {
+          return {
+            ...r,
+            fields: {
+              ...r.fields,
+              Paid: newPaidStatus
+            }
+          };
+        }
+        return r;
+      });
+      
+      // Update the UI immediately
+      setRecords(updatedRecords);
+      
+      // Now perform the actual API update in the background
+      const updatedFields = {
+        ...record.fields,
+        Paid: newPaidStatus
+      };
+      
+      await updateRecord({ recordId: record.recordId, fields: updatedFields });
+      
+      // Show success animation
+      setRecentlyUpdatedRecords(prev => ({ ...prev, [record.recordId!]: true }));
+      
+      // Remove the success animation after 2 seconds
+      setTimeout(() => {
+        setRecentlyUpdatedRecords(prev => {
+          const updated = { ...prev };
+          delete updated[record.recordId!];
+          return updated;
+        });
+      }, 2000);
+      
+      setError(null);
+    } catch (err) {
+      // If the API call fails, revert the optimistic update
+      setRecords(prevRecords => prevRecords.map(r => {
+        if (r.recordId === record.recordId) {
+          return record; // Restore the original record state
+        }
+        return r;
+      }));
+      
+      if (err instanceof Error) {
+        setError(err.message || 'فشل في تحديث حالة الدفع');
+      } else {
+        setError('فشل في تحديث حالة الدفع');
+      }
+    } finally {
+      // Clear the updating state for this record
+      setUpdatingPaymentRecords(prev => {
+        const updated = { ...prev };
+        delete updated[record.recordId!];
+        return updated;
+      });
+    }
+  };
+
   // Phone Authentication Screen
   if (!isAuthenticated) {
     return (
@@ -1069,6 +1183,20 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 relative pb-16">
+      {/* Pulse animation for payment status toggle */}
+      <style dangerouslySetInnerHTML={{ 
+        __html: `
+          @keyframes pulse-success {
+            0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+          }
+          .pulse-success {
+            animation: pulse-success 1.5s ease-out;
+          }
+        `
+      }} />
+      
       <div className="max-w-[100%] sm:max-w-lg mx-auto px-2 sm:px-4 py-6">
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -1113,7 +1241,7 @@ function App() {
           <div className="mb-4 bg-amber-50 border border-amber-200 p-3 rounded-md flex items-center">
             <Eye className="w-5 h-5 text-amber-500 mr-2 shrink-0" />
             <p className="text-sm text-amber-700">
-              أنت في وضع القراءة فقط. لا يمكنك إضافة أو تعديل أو حذف السجلات.
+              أنت في وضع القراءة فقط. لا يمكنك إضافة أو تعديل أو حذف البنود.
             </p>
           </div>
         )}
@@ -1226,29 +1354,75 @@ function App() {
                     </div>
                   </div>
                   <div className="text-xs text-gray-500 mt-1">
-                    ({yearlyStats[year].count.toLocaleString('ar-SA')} سجل)
+                    ({yearlyStats[year].count.toLocaleString('ar-SA')} بند)
                   </div>
                   {year === '1446' && (
                     <>
-                      {/* Budget progress bar */}
+                      {/* Enhanced Budget progress bar with payment tracking */}
                       <div className="mt-2">
                         <div className="flex justify-between items-center text-xs mb-1">
                           <span className="text-gray-600">الميزانية: 20,520.60 ريال</span>
-                          <span className={`font-medium ${yearlyStats[year].total > 20520.60 ? 'text-red-600' : 'text-green-600'}`}>
-                            {Math.min(100, Math.round((yearlyStats[year].total / 20520.60) * 100))}%
+                          <span className={`font-medium ${paymentStats1446.totalPlanned > paymentStats1446.budget ? 'text-red-600' : 'text-green-600'}`}>
+                            {Math.round(paymentStats1446.plannedPercentage)}%
                           </span>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2.5">
+                        
+                        {/* Multi-level progress bar */}
+                        <div className="w-full bg-gray-200 rounded-full h-5 overflow-hidden relative" dir="rtl">
+                          {/* Paid amount */}
                           <div 
-                            className={`h-2.5 rounded-full ${yearlyStats[year].total > 20520.60 ? 'bg-red-500' : 'bg-green-500'}`}
-                            style={{ width: `${Math.min(100, (yearlyStats[year].total / 20520.60) * 100)}%` }}
-                          ></div>
+                            className="h-5 bg-green-500 rounded-r-full absolute right-0 top-0"
+                            style={{ width: `${paymentStats1446.paidPercentage}%` }}
+                          >
+                            {paymentStats1446.paidPercentage > 15 && (
+                              <span className="absolute left-1 text-[10px] text-white font-medium">
+                                {Math.round(paymentStats1446.paidPercentage)}%
+                              </span>
+                            )}
+                          </div>
+                          
+                          {/* Planned amount (stacked on top of paid) */}
+                          <div 
+                            className="h-5 bg-amber-400 absolute right-0 top-0"
+                            style={{ 
+                              width: `${paymentStats1446.plannedPercentage}%`, 
+                              clipPath: paymentStats1446.paidPercentage > 0 
+                                ? `inset(0 ${paymentStats1446.paidPercentage}% 0 0)` 
+                                : 'none'
+                            }}
+                          >
+                            {paymentStats1446.plannedPercentage > paymentStats1446.paidPercentage + 15 && (
+                              <span className="absolute left-1 text-[10px] text-gray-800 font-medium">
+                                المخطط
+                              </span>
+                            )}
+                          </div>
+                          
+                          {/* Budget marker line */}
+                          <div className="absolute top-0 h-full border-r-2 border-blue-700" style={{ right: '100%' }}></div>
                         </div>
+                        
+                        {/* Stats */}
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-green-600 font-medium">
+                              المدفوع: {paymentStats1446.totalPaid.toLocaleString('ar-SA')} ريال
+                            </span>
+                            <div className="h-1.5 w-4 bg-green-500 rounded inline-block ml-1"></div>
+                          </div>
+                          <div>
+                            <span className="text-amber-600 font-medium">
+                              المخطط: {paymentStats1446.totalPlanned.toLocaleString('ar-SA')} ريال
+                            </span>
+                            <div className="h-1.5 w-4 bg-amber-400 rounded inline-block ml-1"></div>
+                          </div>
+                        </div>
+                        
                         <div className="text-xs mt-1 text-right">
-                          {yearlyStats[year].total > 20520.60 ? (
-                            <span className="text-red-600">تجاوز الميزانية بمقدار {(yearlyStats[year].total - 20520.60).toLocaleString('ar-SA')} ريال</span>
+                          {paymentStats1446.totalPlanned > paymentStats1446.budget ? (
+                            <span className="text-red-600">تجاوز الميزانية بمقدار {(paymentStats1446.totalPlanned - paymentStats1446.budget).toLocaleString('ar-SA')} ريال</span>
                           ) : (
-                            <span className="text-green-600">متبقي {(20520.60 - yearlyStats[year].total).toLocaleString('ar-SA')} ريال</span>
+                            <span className="text-green-600">متبقي من الميزانية {(paymentStats1446.budget - paymentStats1446.totalPlanned).toLocaleString('ar-SA')} ريال</span>
                           )}
                         </div>
                       </div>
@@ -1285,7 +1459,7 @@ function App() {
           <button
             onClick={() => setIsFormOpen(true)}
             className={`fixed bottom-6 right-6 h-14 w-14 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 flex items-center justify-center ${isFormSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
-            aria-label="إضافة سجل"
+            aria-label="إضافة بند"
             disabled={isFormSubmitting}
           >
             <Plus className="w-6 h-6" />
@@ -1308,7 +1482,7 @@ function App() {
               <div className="p-6 sm:p-8">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold text-gray-900">
-                    {editingRecord ? 'تعديل السجل' : 'إضافة سجل جديد'}
+                    {editingRecord ? 'تعديل البند' : 'إضافة بند جديد'}
                   </h2>
                   <button 
                     onClick={() => {
@@ -1359,12 +1533,12 @@ function App() {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-gray-700 mb-3">هل أنت متأكد من حذف هذا السجل؟ لا يمكن التراجع عن هذه العملية.</p>
+              <p className="text-gray-700 mb-3">هل أنت متأكد من حذف هذا البند؟ لا يمكن التراجع عن هذه العملية.</p>
               
               {recordToDelete && records.find(r => r.recordId === recordToDelete)?.fields["Attachment URL"] && (
                 <div className="bg-amber-50 border border-amber-200 rounded-md p-3 mb-4">
                   <p className="text-amber-700 text-sm">
-                    <strong>تنبيه:</strong> سيتم أيضًا حذف جميع المرفقات المرتبطة بهذا السجل.
+                    <strong>تنبيه:</strong> سيتم أيضًا حذف جميع المرفقات المرتبطة بهذا البند.
                   </p>
                 </div>
               )}
@@ -1415,6 +1589,20 @@ function App() {
                           {latestRecord.fields["Arabic Category"] || latestRecord.fields.Category || 'غير مصنف'}
                         </p>
                       </div>
+                      {/* Payment status badge for latest record */}
+                      {!isReadOnly && (
+                        <div>
+                          {latestRecord.fields.Paid ? (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                               تم الدفع
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                               غير مدفوع
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 gap-1 text-xs mb-2">
@@ -1446,6 +1634,11 @@ function App() {
                           <th className="px-2 py-1.5 text-center font-medium text-gray-500">الكمية</th>
                           <th className="px-2 py-1.5 text-center font-medium text-gray-500">السعر</th>
                           <th className="px-2 py-1.5 text-center font-medium text-gray-500">التكلفة</th>
+                          {!isReadOnly && (
+                            <th className="px-2 py-1.5 text-center font-medium text-gray-500">
+                              <span className="text-gray-500 text-xs whitespace-nowrap">حالة الدفع</span>
+                            </th>
+                          )}
                           <th className="px-1 py-1.5 text-center font-medium text-gray-500 w-6">
                             <span className="sr-only">المرفقات</span>
                           </th>
@@ -1477,6 +1670,28 @@ function App() {
                                 <SaudiRiyalSymbol size={10} className="text-gray-700 mr-0.5" />
                               </div>
                             </td>
+                            {!isReadOnly && (
+                              <td className="px-2 py-1.5 text-center">
+                                <button 
+                                  onClick={() => handleTogglePaymentStatus(record)}
+                                  disabled={record.fields.EidYear === '1445' || isFormSubmitting || updatingPaymentRecords[record.recordId!]}
+                                  className={`w-5 h-5 rounded ${
+                                    record.fields.Paid 
+                                      ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                                  } flex items-center justify-center transition-colors ${
+                                    record.fields.EidYear === '1445' || isFormSubmitting || updatingPaymentRecords[record.recordId!] ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                                  } ${recentlyUpdatedRecords[record.recordId!] ? 'pulse-success' : ''}`}
+                                  title={record.fields.Paid ? "تم الدفع" : "غير مدفوع"}
+                                >
+                                  {updatingPaymentRecords[record.recordId!] ? (
+                                    <div className="animate-spin h-3 w-3 border-2 border-green-500 border-t-transparent rounded-full"></div>
+                                  ) : (
+                                    record.fields.Paid && <Check className="w-3 h-3" />
+                                  )}
+                                </button>
+                              </td>
+                            )}
                             <td className="px-1 py-1.5 text-gray-500 text-center">
                               {record.fields["Attachment URL"] && (
                                 <button
